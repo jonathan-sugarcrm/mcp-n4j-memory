@@ -4,6 +4,10 @@
 > It is written before code so the architecture and configuration are agreed up front.
 > Update it as decisions change; it should never lag the code.
 >
+> **How this doc changes:** via the loop in [`SPEC_LOOP.md`](./SPEC_LOOP.md). Each
+> implementation pass feeds defects and discoveries back here (tighten a §4 row, resolve or
+> append to §10). Discoveries live nowhere else — no parallel design docs.
+>
 > **v2 change:** we **leverage the [`neo4j-labs/agent-memory`](https://github.com/neo4j-labs/agent-memory)
 > framework** to do the heavy lifting instead of writing our own memory engine. This project
 > is therefore a **deployment + configuration** layer, not a from-scratch reimplementation.
