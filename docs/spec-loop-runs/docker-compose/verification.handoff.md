@@ -8,7 +8,7 @@ All checks were run independently from repository root: `/home/jrawlinson/.repos
 |---|---:|---|---|
 | AC-DC1 | PASS | Exact embedded AC-DC1 Python assertion against `docker compose config --format json`; plus by-eye compose review. | Assertion exited `0`. Rendered config has exactly `neo4j`, `llm-proxy`, `mcp`; Neo4j image/APOC/healthcheck/named `/data` volume present; LiteLLM image/config mount present; MCP build and dependencies present. |
 | AC-DC2 | PASS | Exact embedded AC-DC2 Python assertion against `docker compose config --format json`; plus by-eye compose review. | Assertion exited `0`. `db-net` and `llm-net` are internal; `neo4j` only on `db-net`; `llm-proxy` only on `llm-net`; only `mcp` bridges both. |
-| AC-DC3 | PASS | Exact embedded AC-DC3 Python assertion against `docker compose config --format json` plus `docker/mcp.Dockerfile`; plus by-eye compose review. | Assertion exited `0`. Published ports are allow-listed; MCP env excludes `ANTHROPIC_API_KEY`; proxy env includes LiteLLM and Anthropic keys; Neo4j auth present; Dockerfile contains `http://llm-proxy:4000/v1`. |
+| AC-DC3 | PASS | Exact embedded AC-DC3 Python assertion against `docker compose config --format json` plus `docker/mcp.Dockerfile`; plus by-eye compose review. | Assertion exited `0`. Published ports are allow-listed; MCP env uses nested `NAM_LLM__*`/`NAM_EMBEDDING__*` keys and excludes `ANTHROPIC_API_KEY`; proxy env includes LiteLLM and Anthropic keys; Neo4j auth present; `mcp` env sets `OPENAI_BASE_URL=http://llm-proxy:4000/v1`. |
 
 ### Verbatim happy-path output
 
@@ -48,7 +48,7 @@ services=llm-proxy,mcp,neo4j
 neo4j_networks=db-net
 llm_networks=llm-net
 mcp_networks=db-net,llm-net
-mcp_env_keys=MCP_HOST,MCP_PORT,MCP_TRANSPORT,NAM_EMBEDDING,NAM_LLM,NAM_LLM_API_KEY,NEO4J_DATABASE,NEO4J_PASSWORD,NEO4J_URI,NEO4J_USER
+mcp_env_keys=MCP_HOST,MCP_PORT,MCP_TRANSPORT,NAM_EMBEDDING__DIMENSIONS,NAM_EMBEDDING__MODEL,NAM_EMBEDDING__PROVIDER,NAM_LLM__API_KEY,NAM_LLM__MODEL,NAM_LLM__PROVIDER,NEO4J_DATABASE,NEO4J_PASSWORD,NEO4J_URI,NEO4J_USER,OPENAI_BASE_URL
 llm_env_keys=ANTHROPIC_API_KEY,LITELLM_MASTER_KEY
 neo4j_volume_targets=/data
 ports={'llm-proxy': ['4000'], 'mcp': ['8080'], 'neo4j': ['7474', '7687']}

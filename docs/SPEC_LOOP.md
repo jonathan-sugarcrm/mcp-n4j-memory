@@ -47,10 +47,73 @@ back to the named gate. Never skip ahead to code with an open blocker.
 | 2 | **Gap-check** | Slice + spec | List every unknown needed to fill the five fields, then **classify each** via the *Gate 2 clarification policy* below: investigate technical facts, decide-and-record safe choices, and log only genuine product decisions to **§Open questions** to ask. | Zero unresolved blocking assumptions remain; no criterion has an empty field; every asked item is a product decision. |
 | 3 | **Propose** | Resolved slice | Write **one** `todo` (bounded: a single file/service/check) with its acceptance criteria in the description; add `todo_deps` for ordering. | Slice is small enough to verify in one pass; deps recorded. |
 | 4 | **Execute** | The `todo` | Implement only that slice. Set the todo `in_progress` → `done`. | Change is complete and self-contained; nothing unrelated touched. |
-| 5 | **Verify** | Slice + criteria | Run each criterion's stated **Verification method** — the *smallest* check that proves it (compose config lint, isolation assertion, tool smoke test — see spec §9). Exercise the failure behaviour, not just the happy path. | Every gate-1 criterion is demonstrably met by its verification method, or a defect is logged. |
-| 6 | **Feed back** | Defects + discoveries | Fold each defect/discovery into `SPECIFICATION.md` (tighten a row, resolve/append an Open question, correct §4 wiring). Then pick the next slice → gate 1. | Spec now reflects reality; no discovery left only in chat or a todo. |
+| 5 | **Verify** | Slice + criteria | Run each criterion's stated **Verification method** — the *smallest* check that proves it (compose config lint, isolation assertion, tool smoke test — see spec §9). Exercise the failure behaviour, not just the happy path. Capture the **evidence bundle** (see below) and **classify every failure** via the *Verification-failure classification* table. | Every gate-1 criterion has an evidence bundle proving it met, or a classified failure is logged. |
+| 6 | **Feed back** | Defects + discoveries | Fold each classified failure/discovery back into **the code or the spec** per its classified action (never leave it in chat or a todo): tighten a row, resolve/append an Open question, correct §4 wiring, or route a code fix. Then pick the next slice → gate 1. | The loop is **closed**: every result has moved either the code or `SPECIFICATION.md`. Nothing is merely noted. |
 
-## Gate 2 clarification policy
+## Closing the loop: results must move code or the spec
+
+> A specification loop is **only closed** when the implementation's results can modify
+> **either the code or the specification**. A verification result that changes neither is
+> not feedback — it is a note, and notes are lost. Gate 6 does not exit until every result
+> has landed as a code change or a spec edit.
+
+### Verification-failure classification
+
+Every failure logged at gate 5 **must** be classified into exactly one type below; the
+type determines the action gate 6 takes. This replaces "log a defect" with a deterministic
+routing so the same failure is always handled the same way — and so a passing test can
+never mask an unmet outcome.
+
+| Failure type | Action | Routes to |
+|--------------|--------|-----------|
+| **Code violates a clear requirement** | Fix the code. | gate 4 (Execute) |
+| **Requirement is contradictory** | Fix the specification. | gate 1 / §9 criterion |
+| **Requirement cannot be verified** | Add evidence criteria (make it evaluable). | gate 1 / §9 Verification method |
+| **New technical constraint discovered** | Update the constraints. | §Constraints (`C*`) |
+| **Behaviour is unspecified** | Request a product decision (Class 1). | §Open questions |
+| **Test passes but the outcome is unmet** | Improve the verification model. | gate 1 / §9 Verification method |
+
+- The last row is the trap this table exists to close: a green check is **not** proof.
+  When observed behaviour contradicts a passing check, the *check* is wrong — strengthen the
+  Verification method, do not accept the pass.
+- "Fix the code" and "fix the specification" are the only two terminal actions; every other
+  row is a step toward one of them. That is what "the loop moves code or spec" means.
+
+## Evidence bundle
+
+Every implementation (gate 4) **must** produce an **evidence bundle** — the raw proof gate
+5 re-derives its verdict from. The bundle is a set of `Requirement → Evidence → Result`
+triples, one row per gate-1 criterion:
+
+| Requirement | Evidence | Result |
+|-------------|----------|--------|
+| The criterion id + its Expected observable outcome. | The verbatim artifact that proves it (see below), not a claim of success. | `PASS` / `FAIL` re-derived from the evidence. |
+
+**Evidence may be** (choose the smallest that actually proves the outcome):
+
+- tests,
+- command output,
+- screenshots,
+- API responses,
+- performance measurements,
+- static analysis,
+- deployment observations.
+
+Rules:
+
+- **Raw, not summarized.** "All tests passed" is a claim; the test runner's output is
+  evidence. A row whose Evidence is a summary is treated as **missing evidence** (= fail).
+- **Covers the failure behaviour too.** Each requirement's bundle must show the defined
+  failure outcome was exercised, not only the happy path.
+- **Reproducible.** Evidence names the exact command/input so a different agent can re-run
+  it. Verification (gate 5) reproduces the bundle rather than trusting it.
+
+> **Worked example:** see the *Evidence bundle* table in
+> `docs/spec-loop-runs/docker-compose/implementation.handoff.md` §4 — three requirements,
+> each with reproduced happy-path **and** failure-path evidence, marked `PASS` only because
+> the failure path shows the check can fail.
+
+
 
 > The dominant failure mode of a coding agent is **not** poor implementation — it is
 > **silent assumption-making**. This policy makes ambiguity handling *deterministic*: the
@@ -136,6 +199,13 @@ An agent applying this policy correctly exhibits:
   at gate 3.
 - **Every discovery lands in the spec.** Chat and todos are scratch; `SPECIFICATION.md` is
   the memory. A pass is not `done` until gate 6 has written back.
+- **The loop closes only by moving code or spec.** A verification result that changes
+  neither is unfinished feedback. Every failure is classified and routed to a code fix or a
+  spec edit before the pass is `done`.
+- **No requirement without an evidence bundle.** A criterion with no `Requirement → Evidence
+  → Result` triple (raw, reproducible) is unverified — treat it as failing, not passing.
+- **A passing test is not proof.** If observed behaviour contradicts a green check, fix the
+  verification model; never accept the pass.
 - **Open questions block their dependents, not the whole loop.** Log, ask, and pick a
   slice that doesn't depend on the answer.
 - **No new design docs.** Feedback edits the existing spec sections. This file and the

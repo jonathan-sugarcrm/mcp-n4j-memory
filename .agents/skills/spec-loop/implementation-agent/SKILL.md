@@ -45,9 +45,11 @@ Write `docs/spec-loop-runs/<slice-id>/implementation.handoff.md` with these sect
    requirement id. Nothing unrelated is touched (surgical changes only).
 3. **Decision log** — every Class 3 safe choice made during execution, in the form
    `Chose X over Y because <reversible / follows convention / no contract impact>.`
-4. **Evidence** — per requirement, the exact command(s) run and their output, covering
-   **both** the happy path and the stated failure behaviour. Raw output, not a summary
-   claim of success.
+4. **Evidence bundle** — one `Requirement → Evidence → Result` row per gate-1 criterion
+   (see `SPEC_LOOP.md` §"Evidence bundle"). Evidence is the **verbatim** artifact that
+   proves the outcome — tests, command output, screenshots, API responses, performance
+   measurements, static analysis, or deployment observations — never a summary claim of
+   success, and covering **both** the happy path and the stated failure behaviour.
 5. **Blocking spec defects** — anything in the spec handoff that prevented faithful
    implementation (empty field, contradiction, non-evaluable criterion). "None" if clean.
 
@@ -59,7 +61,8 @@ Write `docs/spec-loop-runs/<slice-id>/implementation.handoff.md` with these sect
    the minimum change that satisfies the criteria — no unrequested features,
    abstractions, or future-proofing.
 3. **Gather evidence:** run each requirement's stated Verification method and capture
-   the output verbatim. Exercise the failure behaviour too.
+   the output verbatim as a `Requirement → Evidence → Result` bundle. Exercise the failure
+   behaviour too.
 4. Record every safe choice with a rationale as you go (a choice without rationale is a
    silent assumption).
 5. Write the handoff artifact. **Do not** assert overall pass/fail — that is stage 3.
@@ -69,5 +72,6 @@ Write `docs/spec-loop-runs/<slice-id>/implementation.handoff.md` with these sect
 - Change is complete, self-contained, and nothing unrelated was touched.
 - Every changed file traces to a requirement id.
 - Decision log has a rationale for each Class 3 choice.
-- Evidence exists for every requirement, including its failure behaviour.
+- Every requirement has an evidence-bundle row (`Requirement → Evidence → Result`) with raw
+  evidence, including its failure behaviour.
 - Any spec ambiguity is reported as a defect, not silently resolved.

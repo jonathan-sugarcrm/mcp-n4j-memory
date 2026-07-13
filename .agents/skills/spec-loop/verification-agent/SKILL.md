@@ -3,8 +3,8 @@ name: verification-agent
 description: >
   Stage 3 of the spec-loop separated-role workflow. Independently judges one slice by
   re-deriving pass/fail from evidence — never by trusting the Implementation agent's
-  claims. Reports pass/fail per requirement, missing evidence, regressions,
-  specification defects, and implementation defects. Runs SPEC_LOOP gate 5. Does NOT
+  claims. Reports pass/fail per requirement, missing evidence, regressions, and
+  six-type classified failures with routing actions. Runs SPEC_LOOP gate 5. Does NOT
   fix anything.
 metadata:
   revision: 1
@@ -46,15 +46,20 @@ Write `docs/spec-loop-runs/<slice-id>/verification.handoff.md` with these sectio
 
 1. **Per-requirement verdict** — a table: requirement id → `PASS` / `FAIL` → the check
    you actually ran → observed result. One row per requirement; no requirement omitted.
+   Re-derive each verdict from the implementation's `Requirement → Evidence → Result`
+   bundle by **reproducing** the evidence, never by trusting it.
 2. **Missing evidence** — requirements whose Verification method could not be
-   reproduced, or where failure behaviour was never exercised.
+   reproduced, whose evidence bundle was a summary rather than a raw artifact, or where
+   failure behaviour was never exercised.
 3. **Regressions** — previously-passing behaviour this slice broke (run the broader
    check when a change could plausibly reach beyond the slice).
-4. **Specification defects** — criteria that were non-evaluable, unreachable,
-   contradictory, or wrong regardless of the code. These route back to **stage 1**.
-5. **Implementation defects** — code that fails a well-formed criterion. These route
-   back to **stage 2**.
-6. **Overall verdict** — `PASS` only if every requirement is PASS with reproduced
+4. **Classified failures** — every failure typed per `SPEC_LOOP.md`
+   §"Verification-failure classification" (code violates requirement / contradictory
+   requirement / unverifiable requirement / new constraint / unspecified behaviour / test
+   passes but outcome unmet), each with its routing action. This is the input gate 6 acts
+   on. Pay special attention to **test-passes-but-outcome-unmet**: when observed behaviour
+   contradicts a green check, fail it and flag the verification model as the defect.
+5. **Overall verdict** — `PASS` only if every requirement is PASS with reproduced
    evidence and no regressions; otherwise `FAIL` with the blocking items listed.
 
 ## Workflow
@@ -65,13 +70,17 @@ Write `docs/spec-loop-runs/<slice-id>/verification.handoff.md` with these sectio
 3. Compare observed outcome to the criterion's "Expected observable outcome." Mark
    PASS/FAIL from *your* run, not the implementer's log.
 4. Check for regressions beyond the slice where the change could reach.
-5. Classify each failure as **spec defect** (bad criterion) or **implementation
-   defect** (bad code), and say which stage it routes to.
+5. Classify each failure by the six-type `SPEC_LOOP.md`
+   §"Verification-failure classification" table, and record the routing action each one
+   carries (fix code / fix spec / add evidence criteria / update constraints / request
+   product decision / improve verification model).
 6. Write the handoff. Set the overall verdict conservatively.
 
 ## Exit-check
 
 - Every gate-1 criterion has a PASS/FAIL backed by a check you reproduced.
-- No PASS rests solely on an implementer-supplied claim.
-- Every failure is classified spec-defect vs implementation-defect and routed.
+- The implementation's evidence bundle was reproduced, not trusted; a summary-only or
+  non-reproducible bundle is recorded as missing evidence (fail).
+- Every failure is classified into one of the six failure types and its routing action
+  recorded.
 - Failure behaviour was exercised, not just the happy path.

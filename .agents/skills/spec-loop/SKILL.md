@@ -63,10 +63,11 @@ defect.
   traced to a `G*`/`C*`); unresolved decisions (open Class-1 questions); verification
   criteria (the exact check per requirement); explicit scope (in / out).
 - **`implementation.handoff.md`** — implementation plan; changed files (path + why);
-  decision log (every Class-3 safe choice with rationale); evidence (commands run +
-  output, per requirement).
+  decision log (every Class-3 safe choice with rationale); an **evidence bundle**
+  (`Requirement → Evidence → Result`, raw artifacts, per requirement, covering the
+  failure behaviour too).
 - **`verification.handoff.md`** — pass/fail per requirement; missing evidence;
-  regressions; specification defects; implementation defects; overall verdict.
+  regressions; **classified failures** (six-type, with routing action); overall verdict.
 - **`reconciliation.handoff.md`** — the spec edits made (diff summary), which
   defects were folded where, and the next slice to pick.
 

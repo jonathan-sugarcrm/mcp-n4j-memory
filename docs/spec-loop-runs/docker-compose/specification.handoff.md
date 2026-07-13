@@ -26,8 +26,8 @@
 ## AC-DC3 — Static port and LLM credential wiring matches the contract
 
 - **Trigger:** `docker compose config --format json` is evaluated from the repository root.
-- **Preconditions:** `.env.example` lists `NEO4J_*`, `NAM_LLM`, `NAM_LLM_API_KEY`, `NAM_EMBEDDING`, `MCP_*`, `LITELLM_MASTER_KEY`, and `ANTHROPIC_API_KEY`; `litellm/config.yaml` defines the proxy model.
-- **Expected observable outcome:** Rendered published host ports are limited to Neo4j `7474`/`7687`, MCP `8080`, and optional LiteLLM `4000`; `mcp` receives Neo4j env, `NAM_LLM=openai/claude`, `NAM_LLM_API_KEY`, `NAM_EMBEDDING=BAAI/bge-small-en-v1.5`, and MCP transport env, but not `ANTHROPIC_API_KEY`; `llm-proxy` receives `LITELLM_MASTER_KEY` and `ANTHROPIC_API_KEY`; `neo4j` receives `NEO4J_AUTH` or equivalent password wiring; `mcp` command/entrypoint includes `--llm-api-base http://llm-proxy:4000/v1` unless inherited from the Dockerfile command.
+- **Preconditions:** `.env.example` lists `NEO4J_*`, `NAM_LLM__PROVIDER`, `NAM_LLM__MODEL`, `NAM_LLM__API_KEY`, `NAM_EMBEDDING__PROVIDER`, `NAM_EMBEDDING__MODEL`, `NAM_EMBEDDING__DIMENSIONS`, `OPENAI_BASE_URL`, `MCP_*`, `LITELLM_MASTER_KEY`, and `ANTHROPIC_API_KEY`; `litellm/config.yaml` defines the proxy model.
+- **Expected observable outcome:** Rendered published host ports are limited to Neo4j `7474`/`7687`, MCP `8080`, and optional LiteLLM `4000`; `mcp` receives Neo4j env, `NAM_LLM__PROVIDER=openai`, `NAM_LLM__MODEL=claude`, `NAM_LLM__API_KEY`, `NAM_EMBEDDING__PROVIDER=sentence_transformers`, `NAM_EMBEDDING__MODEL=BAAI/bge-small-en-v1.5`, `NAM_EMBEDDING__DIMENSIONS=384`, `OPENAI_BASE_URL=http://llm-proxy:4000/v1`, and MCP transport env, but not `ANTHROPIC_API_KEY`; `llm-proxy` receives `LITELLM_MASTER_KEY` and `ANTHROPIC_API_KEY`; `neo4j` receives `NEO4J_AUTH` or equivalent password wiring; the proxy base URL reaches `mcp` via `OPENAI_BASE_URL` (or an inherited `--llm-api-base http://llm-proxy:4000/v1` Dockerfile command).
 - **Failure behaviour:** If an unapproved host port is published, `ANTHROPIC_API_KEY` is present in `mcp`, proxy credentials are missing from `llm-proxy`, or the MCP LLM base URL cannot be found in compose or the Dockerfile command, the static assertion exits non-zero; proxy log proof is deferred to the later `stack-up` slice.
 - **Verification method:** Run the `AC-DC3` Python assertion in the verification criteria against `docker compose config --format json` plus `docker/mcp.Dockerfile`.
 - **Traces to:** G3, C4, C6, compose-visible part of AC-C6.
@@ -85,14 +85,14 @@ def ports(name):
 allowed={"neo4j":{"7474","7687"},"mcp":{"8080"},"llm-proxy":{"4000"}}
 for name in svc: assert ports(name).issubset(allowed.get(name,set())), (name,ports(name))
 me=env("mcp"); le=env("llm-proxy"); ne=env("neo4j")
-for k in ("NEO4J_URI","NEO4J_USER","NEO4J_PASSWORD","NEO4J_DATABASE","NAM_LLM","NAM_LLM_API_KEY","NAM_EMBEDDING","MCP_TRANSPORT","MCP_HOST","MCP_PORT"): assert k in me, (k,me)
-assert me.get("NAM_LLM")=="openai/claude" and me.get("NAM_EMBEDDING")=="BAAI/bge-small-en-v1.5"
+for k in ("NEO4J_URI","NEO4J_USER","NEO4J_PASSWORD","NEO4J_DATABASE","NAM_LLM__PROVIDER","NAM_LLM__MODEL","NAM_LLM__API_KEY","NAM_EMBEDDING__PROVIDER","NAM_EMBEDDING__MODEL","NAM_EMBEDDING__DIMENSIONS","MCP_TRANSPORT","MCP_HOST","MCP_PORT"): assert k in me, (k,me)
+assert me.get("NAM_LLM__PROVIDER")=="openai" and me.get("NAM_LLM__MODEL")=="claude" and me.get("NAM_EMBEDDING__MODEL")=="BAAI/bge-small-en-v1.5"
 assert "ANTHROPIC_API_KEY" not in me
 for k in ("LITELLM_MASTER_KEY","ANTHROPIC_API_KEY"): assert k in le, (k,le)
 assert any(k in ne for k in ("NEO4J_AUTH","NEO4J_PASSWORD")), ne
 cmd=" ".join(map(str, svc["mcp"].get("command",[]) if isinstance(svc["mcp"].get("command"),list) else [svc["mcp"].get("command","")]))
 dockerfile=pathlib.Path("docker/mcp.Dockerfile").read_text()
-assert "http://llm-proxy:4000/v1" in cmd or "http://llm-proxy:4000/v1" in dockerfile
+assert "http://llm-proxy:4000/v1" in cmd or "http://llm-proxy:4000/v1" in dockerfile or me.get("OPENAI_BASE_URL")=="http://llm-proxy:4000/v1"
 '
 ```
 
@@ -124,9 +124,9 @@ None — cleared at gate 2.
 - The durable spec requires a local dockerized Neo4j with a named volume, compose-orchestrated services, MCP on both networks, DB/proxy on separate networks, and Anthropic only behind LiteLLM. Citation: `docs/SPECIFICATION.md` lines 35-46 and 59-65.
 - The runtime topology names `db-net`, `llm-net`, `neo4j`, `llm-proxy`, and `mcp`; only `mcp` belongs to both networks. Citation: `docs/SPECIFICATION.md` lines 67-100.
 - The compose-owned slice is explicitly `docker-compose.yml — the three services, two segmented networks, the neo4j volume`. Citation: `docs/SPECIFICATION.md` lines 113-120.
-- Required MCP wiring includes Bolt Neo4j env, `openai/claude`, `http://llm-proxy:4000/v1`, LiteLLM virtual key, local embedder, and MCP HTTP `0.0.0.0:8080`. Citation: `docs/SPECIFICATION.md` lines 121-174 and `.env.example`.
+- Required MCP wiring includes Bolt Neo4j env, `NAM_LLM__PROVIDER=openai` + `NAM_LLM__MODEL=claude`, `OPENAI_BASE_URL=http://llm-proxy:4000/v1`, LiteLLM virtual key, local embedder, and MCP HTTP `0.0.0.0:8080`. Citation: `docs/SPECIFICATION.md` lines 121-174 and `.env.example`.
 - Deployment notes require `neo4j` official image with APOC, named data volume, bolt healthcheck, `llm-proxy` mounting `litellm/config.yaml`, and `mcp` built from `docker/mcp.Dockerfile` depending on Neo4j and LiteLLM. Citation: `docs/SPECIFICATION.md` lines 191-207.
-- `docker/mcp.Dockerfile` already exposes `8080`, launches `mcp serve`, and includes `--llm-api-base http://llm-proxy:4000/v1`, `--profile extended`, `--backend bolt`, and the local embedding model. Citation: `docker/mcp.Dockerfile`.
+- `docker/mcp.Dockerfile` exposes `8080` and launches `neo4j-agent-memory mcp serve --host 0.0.0.0 --port 8080 --profile extended`; the proxy base URL, LLM/embedder selection, and Bolt backend are supplied at runtime via the container environment (`OPENAI_BASE_URL`, `NAM_LLM__*`, `NAM_EMBEDDING__*`, `NEO4J_*`) rather than baked into the command. Citation: `docker/mcp.Dockerfile`.
 - `litellm/config.yaml` defines a single `claude` model backed by `anthropic/claude-3-5-sonnet-latest` and reads `ANTHROPIC_API_KEY` plus `LITELLM_MASTER_KEY` from the environment. Citation: `litellm/config.yaml`.
 - `.env.example` lists the required Neo4j, MCP, LiteLLM, and Anthropic variables and states that `ANTHROPIC_API_KEY` is for `llm-proxy` only. Citation: `.env.example`.
 - No `docker-compose.yml` exists yet in the repository root. Citation: repository root file match for `docker-compose.yml` returned no matches.

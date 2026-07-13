@@ -26,6 +26,24 @@
 
 All commands were run from repository root: `/home/jrawlinson/.repositories/jonathan-sugarcrm/mcp-n4j-memory`.
 
+### Evidence bundle (`Requirement → Evidence → Result`)
+
+Worked example of the `SPEC_LOOP.md` §"Evidence bundle" format: one row per gate-1
+criterion, each pointing at the **raw** happy-path and failure-path evidence reproduced
+in the subsections below. Verification (stage 3) re-derives each Result by re-running the
+listed command, not by trusting this table.
+
+| Requirement | Evidence (raw, reproducible) | Result |
+|-------------|------------------------------|--------|
+| **AC-DC1** — `docker compose config` renders exactly the `neo4j` (official image + APOC + healthcheck + named `/data` volume), `llm-proxy` (LiteLLM image + mounted config), and `mcp` (Dockerfile build + both dependencies) services. | Happy: *AC-DC1 — happy path* → `AC-DC1 happy` / `EXIT_CODE=0`. Failure: *AC-DC1 — failure-path sanity* (remove neo4j volumes) → `AssertionError: []` / `EXIT_CODE=1`. Command batch: Appendix A. | **PASS** |
+| **AC-DC2** — `db-net` and `llm-net` are `internal: true`; only `mcp` is attached to both; `neo4j` and `llm-proxy` share no network. | Happy: *AC-DC2 — happy path* → `AC-DC2 happy` / `EXIT_CODE=0`. Failure: *AC-DC2 — failure-path sanity* (attach neo4j to llm-net) → `AssertionError: {'db-net', 'llm-net'}` / `EXIT_CODE=1`. Command batch: Appendix A. | **PASS** |
+| **AC-DC3** — approved host ports only; MCP LLM/embed defaults are `NAM_LLM__PROVIDER=openai` + `NAM_LLM__MODEL=claude` + `NAM_EMBEDDING__MODEL=BAAI/bge-small-en-v1.5` with `OPENAI_BASE_URL=http://llm-proxy:4000/v1`; `ANTHROPIC_API_KEY` is absent from `mcp` and present on `llm-proxy`. | Happy: *AC-DC3 — happy path* → `AC-DC3 happy` / `EXIT_CODE=0`. Failure: *AC-DC3 — failure-path sanity* (leak `ANTHROPIC_API_KEY` onto `mcp`) → `AssertionError` / `EXIT_CODE=1`. Command batch: Appendix A. | **PASS** |
+
+Each Result is `PASS` only because the failure-path row shows the check can actually
+fail (`EXIT_CODE=1`) when the outcome is violated — a green happy path alone would be a
+claim, not evidence.
+
+
 ### Static render
 
 Command:
@@ -80,13 +98,17 @@ services:
       MCP_HOST: 0.0.0.0
       MCP_PORT: "8080"
       MCP_TRANSPORT: http
-      NAM_EMBEDDING: BAAI/bge-small-en-v1.5
-      NAM_LLM: openai/claude
-      NAM_LLM_API_KEY: change-me
+      NAM_EMBEDDING__DIMENSIONS: "384"
+      NAM_EMBEDDING__MODEL: BAAI/bge-small-en-v1.5
+      NAM_EMBEDDING__PROVIDER: sentence_transformers
+      NAM_LLM__API_KEY: change-me
+      NAM_LLM__MODEL: claude
+      NAM_LLM__PROVIDER: openai
       NEO4J_DATABASE: neo4j
       NEO4J_PASSWORD: change-me
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USER: neo4j
+      OPENAI_BASE_URL: http://llm-proxy:4000/v1
     networks:
       db-net: null
       llm-net: null
@@ -302,14 +324,14 @@ def ports(name):
 allowed={"neo4j":{"7474","7687"},"mcp":{"8080"},"llm-proxy":{"4000"}}
 for name in svc: assert ports(name).issubset(allowed.get(name,set())), (name,ports(name))
 me=env("mcp"); le=env("llm-proxy"); ne=env("neo4j")
-for k in ("NEO4J_URI","NEO4J_USER","NEO4J_PASSWORD","NEO4J_DATABASE","NAM_LLM","NAM_LLM_API_KEY","NAM_EMBEDDING","MCP_TRANSPORT","MCP_HOST","MCP_PORT"): assert k in me, (k,me)
-assert me.get("NAM_LLM")=="openai/claude" and me.get("NAM_EMBEDDING")=="BAAI/bge-small-en-v1.5"
+for k in ("NEO4J_URI","NEO4J_USER","NEO4J_PASSWORD","NEO4J_DATABASE","NAM_LLM__PROVIDER","NAM_LLM__MODEL","NAM_LLM__API_KEY","NAM_EMBEDDING__PROVIDER","NAM_EMBEDDING__MODEL","NAM_EMBEDDING__DIMENSIONS","MCP_TRANSPORT","MCP_HOST","MCP_PORT"): assert k in me, (k,me)
+assert me.get("NAM_LLM__PROVIDER")=="openai" and me.get("NAM_LLM__MODEL")=="claude" and me.get("NAM_EMBEDDING__MODEL")=="BAAI/bge-small-en-v1.5"
 assert "ANTHROPIC_API_KEY" not in me
 for k in ("LITELLM_MASTER_KEY","ANTHROPIC_API_KEY"): assert k in le, (k,le)
 assert any(k in ne for k in ("NEO4J_AUTH","NEO4J_PASSWORD")), ne
 cmd=" ".join(map(str, svc["mcp"].get("command",[]) if isinstance(svc["mcp"].get("command"),list) else [svc["mcp"].get("command","")]))
 dockerfile=pathlib.Path("docker/mcp.Dockerfile").read_text()
-assert "http://llm-proxy:4000/v1" in cmd or "http://llm-proxy:4000/v1" in dockerfile
+assert "http://llm-proxy:4000/v1" in cmd or "http://llm-proxy:4000/v1" in dockerfile or me.get("OPENAI_BASE_URL")=="http://llm-proxy:4000/v1"
 '
 printf 'EXIT_CODE=%s\n' "$?"
 ```
@@ -361,14 +383,14 @@ def ports(name):
 allowed={"neo4j":{"7474","7687"},"mcp":{"8080"},"llm-proxy":{"4000"}}
 for name in svc: assert ports(name).issubset(allowed.get(name,set())), (name,ports(name))
 me=env("mcp"); le=env("llm-proxy"); ne=env("neo4j")
-for k in ("NEO4J_URI","NEO4J_USER","NEO4J_PASSWORD","NEO4J_DATABASE","NAM_LLM","NAM_LLM_API_KEY","NAM_EMBEDDING","MCP_TRANSPORT","MCP_HOST","MCP_PORT"): assert k in me, (k,me)
-assert me.get("NAM_LLM")=="openai/claude" and me.get("NAM_EMBEDDING")=="BAAI/bge-small-en-v1.5"
+for k in ("NEO4J_URI","NEO4J_USER","NEO4J_PASSWORD","NEO4J_DATABASE","NAM_LLM__PROVIDER","NAM_LLM__MODEL","NAM_LLM__API_KEY","NAM_EMBEDDING__PROVIDER","NAM_EMBEDDING__MODEL","NAM_EMBEDDING__DIMENSIONS","MCP_TRANSPORT","MCP_HOST","MCP_PORT"): assert k in me, (k,me)
+assert me.get("NAM_LLM__PROVIDER")=="openai" and me.get("NAM_LLM__MODEL")=="claude" and me.get("NAM_EMBEDDING__MODEL")=="BAAI/bge-small-en-v1.5"
 assert "ANTHROPIC_API_KEY" not in me
 for k in ("LITELLM_MASTER_KEY","ANTHROPIC_API_KEY"): assert k in le, (k,le)
 assert any(k in ne for k in ("NEO4J_AUTH","NEO4J_PASSWORD")), ne
 cmd=" ".join(map(str, svc["mcp"].get("command",[]) if isinstance(svc["mcp"].get("command"),list) else [svc["mcp"].get("command","")]))
 dockerfile=pathlib.Path("docker/mcp.Dockerfile").read_text()
-assert "http://llm-proxy:4000/v1" in cmd or "http://llm-proxy:4000/v1" in dockerfile
+assert "http://llm-proxy:4000/v1" in cmd or "http://llm-proxy:4000/v1" in dockerfile or me.get("OPENAI_BASE_URL")=="http://llm-proxy:4000/v1"
 '
 printf 'EXIT_CODE=%s\n' "$?"
 ```

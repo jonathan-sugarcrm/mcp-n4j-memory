@@ -48,8 +48,14 @@ Runs `docs/SPEC_LOOP.md` gate **6 (Feed back)**.
    - **Spec edits made** — a short diff summary (section → what changed → which finding
      it answers).
    - **Defects folded** — table: verification finding → where it landed in the spec.
-   - **Loop routing** — for any still-open defect, which stage it returns to
-     (spec defect → stage 1; implementation defect → stage 2).
+   - **Loop routing** — for each classified failure, the action taken per the
+     `SPEC_LOOP.md` §"Verification-failure classification" table: code violates
+     requirement → code fix (stage 2); contradictory requirement → fix spec (stage 1);
+     unverifiable requirement → add evidence criteria (§9); new constraint → update
+     §Constraints; unspecified behaviour → §Open questions (Class 1); test passes but
+     outcome unmet → improve the §9 Verification method. **The loop is closed only when
+     every result has moved either the code or the spec** — a result that changed neither
+     is unfinished.
    - **Next slice** — the next bounded slice id to feed into stage 1, with one-line
      rationale (from §3.3 "the thin delta").
 
@@ -66,7 +72,9 @@ Runs `docs/SPEC_LOOP.md` gate **6 (Feed back)**.
 ## Exit-check
 
 - Spec now reflects reality: no discovery left only in chat, a todo, or a handoff.
-- Every verification finding is either folded into the spec or explicitly routed back to
-  a stage.
+- Every verification finding moved **either the code or the spec** — the loop is closed;
+  nothing is merely noted.
+- Every classified failure is either resolved or explicitly routed to its action per the
+  six-type table.
 - Only `SPECIFICATION.md` (and the reconciliation handoff) were edited — no new docs.
 - The next slice is named, so gate 1 can start again.

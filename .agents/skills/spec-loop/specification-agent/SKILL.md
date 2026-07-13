@@ -51,6 +51,10 @@ in order:
    - Traces to: `G*` / `C*`
 3. **Verification criteria** — restate, per requirement, the single mechanical check
    that proves it pass/fail with no judgement call. (This is what stage 3 will run.)
+   Each check must be strong enough that it can only pass when the Expected observable
+   outcome is actually met — if gate 6 routes back a *requirement-cannot-be-verified* or
+   *test-passes-but-outcome-unmet* failure, tighten the check here so a green result can
+   no longer mask an unmet outcome.
 4. **Explicit scope** — bullet list of what is **in** this slice and what is **out**.
 5. **Unresolved decisions** — only genuine **Class 1** product decisions (see policy),
    each with its legitimate options. If empty, write "None — cleared at gate 2."
