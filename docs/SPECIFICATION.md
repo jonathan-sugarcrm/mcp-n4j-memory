@@ -265,12 +265,16 @@ defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each o
 > a Neo4j restart) and **AC-C5** plus the DB↔LLM-proxy half of **AC-G4** (both negative
 > reachability probes fail). The `mcp-image-up` slice runtime-verified **AC-C3**, **AC-G1**,
 > the `mcp`-bridge half of **AC-G4**, and the standalone **AC-C7** baked-embedder load
-> (384-dim vector). The final `llm-smoke` slice is now runnable locally against a
-> compatible LiteLLM mock backend: proxy routing/isolation (**AC-C6/AC-G3**), persistence
-> through an LLM-triggering store (**AC-G2**), and semantic vector search with the runtime
-> offline embedder (**AC-G5**) are in scope. The positive proof that the production model is
-> served by real Anthropic remains deferred to an environment with a real
-> `ANTHROPIC_API_KEY`.
+> (384-dim vector). The `llm-smoke` slice runtime-verified, from a clean state, **AC-C6/AC-G3**
+> proxy routing/isolation via the LiteLLM `claude-mock` mock backend (mock completion recorded
+> in `llm-proxy` logs; `mcp` holds no `ANTHROPIC_API_KEY` and has no direct Anthropic egress —
+> both `llm-net`/`db-net` confirmed `internal: true`), the LLM-triggering persistence portion
+> of **AC-G2** (`memory_store_message` via the mock route produced a node found by a direct
+> Neo4j bolt read), and **AC-G5** semantic vector search (a token-disjoint paraphrase query
+> returned the stored hit against the runtime offline embedder). All four are runtime-
+> reproduced, not static-only. The positive proof that production traffic is served by real
+> Anthropic remains deferred to a credentialed production environment with a real
+> `ANTHROPIC_API_KEY` supplied only to `llm-proxy`.
 
 ### 9.1 Constraint criteria
 
@@ -382,7 +386,13 @@ defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each o
   direct-query result; the criterion fails.
 - **Verification method:** Tool smoke sequence using `memory_store_message` against the mock
   LLM model; assert the written node exists via a direct bolt `graph_query` / cypher read.
-  (Supports **AC-C1**.)
+  The check must also mechanically exercise the failure branch, not merely assert it in
+  prose: rerun with Neo4j wiring broken (e.g. `NEO4J_URI` pointed at an unreachable/wrong
+  port, or the correct port with a wrong password) and assert that `memory_store_message`
+  returns an error, or — if the tool call itself does not surface one — that a direct bolt
+  read for the same unique marker finds no matching node. A verification pass that never
+  runs this broken-wiring case is not sufficient evidence for this criterion. (Supports
+  **AC-C1**.)
 
 #### AC-G3 — Every LLM call is routed through the proxy
 - **Trigger:** Any framework LLM operation (extraction, preference detection, summarization)
@@ -447,11 +457,12 @@ defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each o
   (`docker/mcp.Dockerfile`) and
   `anthropic/claude-3-5-sonnet-latest` (`litellm/config.yaml`) — both must be confirmed
   before merge.
-- **LLM-dependent runtime verification is split by backend:** AC-C6, AC-G3, and the
-  LLM-triggering portions of AC-G2/AC-G5 are no longer blocked for local `llm-smoke` because
-  LiteLLM `mock_response` can provide a compatible proxy-served backend with no provider
-  secret. The positive proof that production traffic is served by real Anthropic remains
-  deferred until a real `ANTHROPIC_API_KEY` is supplied securely to `llm-proxy`.
+- **Real-Anthropic positive path remains deferred to production.** `llm-smoke` runtime-
+  verified AC-C6/AC-G3 routing/isolation and the LLM-triggering portions of AC-G2/AC-G5 using
+  the LiteLLM `claude-mock` mock backend (see §9 slice-status and "Resolved items" below). The
+  one remaining gap is proving the production `claude` model actually serves a real
+  Anthropic-backed completion; that requires a real `ANTHROPIC_API_KEY` supplied only to
+  `llm-proxy` and is deferred to a credentialed production-like environment before merge.
 - **Cleanup dead MCP transport env:** `docker-compose.yml` and `.env.example` still set
   `MCP_TRANSPORT`, `MCP_HOST`, and `MCP_PORT`, but the current `neo4j-agent-memory mcp serve`
   CLI does not read those env vars; Dockerfile `CMD` flags supply transport/host/port.
@@ -464,6 +475,19 @@ defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each o
 
 ### Resolved items
 
+- **Resolved in `llm-smoke`: AC-C6/AC-G3 proxy routing/isolation and the LLM-triggering
+  portions of AC-G2/AC-G5 are runtime-verified.** LiteLLM's `claude-mock` `mock_response`
+  model gives a compatible local backend with no provider secret in `mcp`; a clean-state
+  rerun (`docker compose down -v` → fresh `up`) reproduced the mock completion, the absent
+  `ANTHROPIC_API_KEY`, the blocked direct Anthropic egress, the persisted Neo4j node, and the
+  token-disjoint paraphrase search hit. See §9 slice-status. Only the real-Anthropic positive
+  path remains open (bullet above).
+- **Resolved in `llm-smoke`: AC-G2's Verification method now forces the failure branch.**
+  Verification found the prior wording only asserted the failure behaviour in prose; §9.2
+  AC-G2 now requires a rerun with broken Neo4j wiring (wrong port/password) asserting
+  `memory_store_message` errors or the direct bolt read finds no node, so a passing check can
+  no longer mask silently-broken persistence (`weak_verification` defect, routed to gate 1 /
+  §9 Verification method).
 - **Resolved in `mcp-image-up`: deferred `mcp` image ENTRYPOINT defect.** The image now uses
   `ENTRYPOINT ["neo4j-agent-memory", "mcp", "serve"]`, installs the
   `sentence-transformers` extra needed by the baked embedder, and starts with only accepted

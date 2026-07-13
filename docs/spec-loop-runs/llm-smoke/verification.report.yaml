@@ -1,0 +1,28 @@
+slice: llm-smoke
+requirements:
+  - id: R1
+    result: pass
+    evidence:
+      - command: "docker compose exec mcp python3 -c \"httpx.post('http://llm-proxy:4000/v1/chat/completions', json={'model':'claude-mock', ...})\" # 200 OK, mock completion, no Anthropic call"
+      - command: "docker compose logs llm-proxy --tail 10 # INFO: ... \"POST /v1/chat/completions HTTP/1.1\" 200 OK against claude-mock"
+      - command: "docker compose exec mcp env | grep -i anthropic # no output; ANTHROPIC_API_KEY confirmed absent from mcp"
+      - command: "docker compose exec mcp python3 -c \"httpx.post(..., model='claude-mock', Authorization='Bearer totally-wrong-key')\" # 400 rejected by proxy, no fallback"
+      - command: "docker compose exec mcp python3 -c \"httpx.post(..., model='claude', ...)\" # 500 AnthropicException: Cannot connect to host api.anthropic.com (name resolution failure) proving no real key / no fallback"
+      - command: "docker compose exec mcp python3 -c \"socket.create_connection(('api.anthropic.com', 443))\" # BLOCKED: Temporary failure in name resolution"
+      - command: "docker network inspect mcp-n4j-memory_llm-net --format '{{.Internal}}' && docker network inspect mcp-n4j-memory_db-net --format '{{.Internal}}' # both true"
+  - id: R2
+    result: pass
+    evidence:
+      - command: "docker compose exec mcp python3 /tmp/llm_smoke.py --mcp-url http://localhost:8080/mcp/ --neo4j-uri bolt://neo4j:7687 --neo4j-password vpw-test-pw # store result: {\"stored\": true, ...}; R2 OK: Neo4j node found for marker llm-smoke-27495683435b with verbatim content field; exit 0, LLM_SMOKE_OK"
+  - id: R3
+    result: pass
+    evidence:
+      - command: "docker compose exec mcp env | grep -E 'HF_HUB_OFFLINE|TRANSFORMERS_OFFLINE' # HF_HUB_OFFLINE=1, TRANSFORMERS_OFFLINE=1"
+      - command: "docker compose exec mcp python3 -c \"SentenceTransformer('BAAI/bge-small-en-v1.5'); print(dim)\" # loaded in 0.25s from local cache, dim=384, no network call"
+      - command: "docker compose exec mcp python3 -c \"MATCH (n) WHERE n.embedding IS NOT NULL RETURN size(n.embedding); SHOW VECTOR INDEXES\" # embedding dims: 384; 6 vector indexes all state: ONLINE"
+      - command: "docker compose exec -e HF_HUB_OFFLINE=0 -e TRANSFORMERS_OFFLINE=0 mcp python3 -c \"SentenceTransformer('BAAI/bge-small-en-v1.5-nonexistent-tag-forces-network-check')\" # real HF network attempt made and failed: Temporary failure in name resolution, proving offline flags are what suppress the attempt"
+  - id: R4
+    result: pass
+    evidence:
+      - command: "docker compose exec mcp python3 /tmp/llm_smoke.py --mcp-url http://localhost:8080/mcp/ --neo4j-uri bolt://neo4j:7687 --neo4j-password vpw-test-pw # stored 'the falcon soared gracefully above the canyon at dawn.', searched 'A bird glided elegantly over the gorge in early morning.' (zero shared significant tokens); search result includes stored id/content with similarity 0.826; R4 OK printed; exit 0, LLM_SMOKE_OK"
+overall: pass
