@@ -1,0 +1,23 @@
+{
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "neo4j-password",
+      "description": "Neo4j password",
+      "password": true
+    }
+  ],
+  "servers": {
+    "neo4j-cypher": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["mcp-neo4j-cypher@latest"],
+      "env": {
+        "NEO4J_URI": "bolt://localhost:7687",
+        "NEO4J_USERNAME": "neo4j",
+        "NEO4J_PASSWORD": "${input:neo4j-password}",
+        "NEO4J_DATABASE": "neo4j"
+      }
+    }
+  }
+}
