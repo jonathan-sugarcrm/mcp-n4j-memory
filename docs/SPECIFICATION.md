@@ -203,21 +203,175 @@ variable above; real secrets never enter VCS.
 - Local dev without docker: run Neo4j + LiteLLM, export env, `uvx "neo4j-agent-memory[mcp]"
   mcp serve …` (documented in the README).
 
-## 9. Verification / testing
+## 9. Verification / testing — acceptance criteria
 
-Because the engine is a third-party framework, our tests target **wiring and isolation**,
-not memory internals:
+Because the engine is a third-party framework, our criteria target **wiring and isolation**,
+not memory internals. Every criterion below is written to the evaluable, five-field standard
+defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each one states a
+**Trigger**, **Preconditions**, **Expected observable outcome**, **Failure behaviour**, and
+**Verification method**, and traces to a Constraint (`C*`) or Goal (`G*`). IDs are `AC-C*` /
+`AC-G*`. Four underlying checks recur as verification methods and are named once here:
 
-- **Config lint** — compose config validates; LiteLLM config parses.
-- **Network isolation assertions** — from `mcp`, both `neo4j:7687` and `llm-proxy:4000` are
-  reachable; from `neo4j`, `llm-proxy` is **unreachable**, and vice versa (scripted checks).
-- **Smoke test** — bring the stack up; exercise a representative subset of the 16 tools over
-  the MCP transport (e.g. `memory_store_message` → `memory_search` → `memory_get_entity` →
-  `graph_query`) and assert data lands in Neo4j and embeddings/vector search work.
-- **Offline embedder check** — the embedding model loads with no network access.
+- **Config lint** — `docker compose config` validates and `litellm/config.yaml` parses.
+- **Reachability probe** — a scripted TCP/HTTP connect attempt run *from inside* a named
+  service container against another service's `host:port`.
+- **Tool smoke sequence** — bring the stack up and drive the MCP transport through
+  `memory_store_message` → `memory_search` → `memory_get_entity` → `graph_query`.
+- **Offline-model load** — start the `mcp` container with egress blocked and load the embedder.
+
+### 9.1 Constraint criteria
+
+#### AC-C1 — Database is local and persistent
+- **Trigger:** `docker compose up` starts the stack, then `neo4j` is restarted.
+- **Preconditions:** A named docker volume is bound to Neo4j's data directory; no external DB
+  URI is configured.
+- **Expected observable outcome:** A node written before the restart is still queryable after
+  it; the data path resolves to the named volume, not container-ephemeral storage.
+- **Failure behaviour:** If the named volume is absent, `neo4j` fails to start (fail closed)
+  rather than silently using ephemeral storage.
+- **Verification method:** Config lint asserts the named volume + bolt (non-remote) URI;
+  tool smoke sequence writes a node, `docker restart` neo4j, re-query returns the node.
+
+#### AC-C2 — Every service is a container orchestrated by compose
+- **Trigger:** `docker compose config` is evaluated and the stack is brought up.
+- **Preconditions:** `docker-compose.yml` defines exactly the `neo4j`, `llm-proxy`, and `mcp`
+  services.
+- **Expected observable outcome:** All three services are present in the rendered config and
+  reach running/healthy state; no service is expected to run outside a container.
+- **Failure behaviour:** A missing or malformed service definition makes config lint fail and
+  the affected service never starts.
+- **Verification method:** Config lint; `docker compose ps` shows all three services up.
+
+#### AC-C3 — MCP is linked to both the DB and the LLM proxy
+- **Trigger:** A reachability probe is run from inside the `mcp` container.
+- **Preconditions:** `mcp` is attached to both `db-net` and `llm-net`.
+- **Expected observable outcome:** From `mcp`, both `neo4j:7687` and `llm-proxy:4000` accept
+  the connection.
+- **Failure behaviour:** If `mcp` is missing either network, the corresponding probe refuses
+  to connect and the criterion fails.
+- **Verification method:** Reachability probe from `mcp` to `neo4j:7687` and `llm-proxy:4000`.
+
+#### AC-C4 — All services are firewalled (no default public exposure)
+- **Trigger:** `docker compose config` is evaluated.
+- **Preconditions:** Internal networks are declared `internal` where practical; only explicit
+  local-dev host port mappings exist.
+- **Expected observable outcome:** No service publishes to `0.0.0.0` beyond the documented
+  local-dev ports (neo4j 7474/7687, mcp 8080, optional llm-proxy 4000); inter-service traffic
+  stays on internal docker networks.
+- **Failure behaviour:** An unintended `ports:` publish is surfaced by the config assertion and
+  fails the check (fail closed) rather than shipping an open port.
+- **Verification method:** Config lint asserts the published-port set equals the documented
+  allow-list and that internal networks carry `internal: true`.
+
+#### AC-C5 — LLM proxy and DB cannot reach each other
+- **Trigger:** Reachability probes are run from `neo4j` and from `llm-proxy`.
+- **Preconditions:** `neo4j` is only on `db-net`; `llm-proxy` is only on `llm-net`; the two
+  networks share no members.
+- **Expected observable outcome:** From `neo4j`, `llm-proxy:4000` is **unreachable**; from
+  `llm-proxy`, `neo4j:7687` is **unreachable** (connection refused/timeout).
+- **Failure behaviour:** If either probe connects, isolation is violated and the check fails
+  the build (fail closed) — the stack must not be considered deployable.
+- **Verification method:** Reachability probe `neo4j → llm-proxy:4000` and
+  `llm-proxy → neo4j:7687`, both asserted to fail. (Satisfies **G4**; see AC-G4.)
+
+#### AC-C6 — Backend LLM is Anthropic, reached only via the proxy
+- **Trigger:** A framework operation that issues an LLM call (e.g. entity extraction during
+  `memory_store_message`) runs.
+- **Preconditions:** LiteLLM lists a single Anthropic-backed model; the framework's
+  `--llm-api-base` points at `http://llm-proxy:4000/v1`; `ANTHROPIC_API_KEY` exists **only** in
+  the `llm-proxy` environment.
+- **Expected observable outcome:** The request appears in `llm-proxy` logs and is served by the
+  Anthropic-backed model; the `mcp` container holds no Anthropic credential.
+- **Failure behaviour:** With no valid virtual key or proxy route, the LLM call fails at the
+  proxy; `mcp` can never fall back to calling Anthropic directly (it has no key or egress).
+- **Verification method:** Config lint asserts a single Anthropic model + key sourced from env;
+  environment assertion that `ANTHROPIC_API_KEY` is unset in `mcp`; tool smoke sequence, then
+  confirm the LLM call is recorded in `llm-proxy` logs.
+
+#### AC-C7 — Embedder is local and offline
+- **Trigger:** The `mcp` container starts and loads the embedding model.
+- **Preconditions:** The embedding model is baked into the `mcp` image at build time; the
+  container is started with egress blocked.
+- **Expected observable outcome:** The embedder loads and produces a 384-dim vector with no
+  outbound network request.
+- **Failure behaviour:** If the model is not present locally, load fails at startup rather than
+  attempting a network download.
+- **Verification method:** Offline-model load with egress blocked; assert successful load and a
+  384-dim embedding.
+
+### 9.2 Goal criteria
+
+#### AC-G1 — All 16 extended MCP tools are exposed unchanged
+- **Trigger:** An MCP client lists tools against the running `mcp` server.
+- **Preconditions:** The server is launched with `--profile extended`.
+- **Expected observable outcome:** The advertised tool set equals the 16 names in §3.2, with
+  unchanged names.
+- **Failure behaviour:** A missing/renamed tool means clients bind to a name that no longer
+  exists; the check fails and the profile/flags must be corrected.
+- **Verification method:** Tool smoke sequence preceded by an MCP `list_tools` call; assert the
+  returned names equal the §3.2 set of 16.
+
+#### AC-G2 — Memory persists in the local Neo4j graph (bolt)
+- **Trigger:** `memory_store_message` is called, then Neo4j is queried directly over bolt.
+- **Preconditions:** `--backend bolt` and the `NEO4J_*` wiring from §4 are in effect.
+- **Expected observable outcome:** The stored content materialises as node(s) in the Neo4j
+  graph, readable via a direct bolt query.
+- **Failure behaviour:** A misconfigured backend surfaces as a store error or an empty
+  direct-query result; the criterion fails.
+- **Verification method:** Tool smoke sequence; assert the written node exists via a direct
+  bolt `graph_query` / cypher read. (Supports **AC-C1**.)
+
+#### AC-G3 — Every LLM call is routed through the proxy
+- **Trigger:** Any framework LLM operation (extraction, preference detection, summarization)
+  runs.
+- **Preconditions:** Same as AC-C6 preconditions.
+- **Expected observable outcome:** The call is observed in `llm-proxy` logs; no LLM traffic
+  originates directly from `mcp` to the Anthropic API.
+- **Failure behaviour:** `mcp` has no Anthropic key or egress, so a mis-route fails the call at
+  the proxy rather than silently reaching Anthropic.
+- **Verification method:** Same as **AC-C6** verification method (shared check).
+
+#### AC-G4 — Network segmentation holds; only MCP bridges both nets
+- **Trigger:** Reachability probes are run from all three services.
+- **Preconditions:** Network membership per §3.1 (`neo4j`∈db-net, `llm-proxy`∈llm-net,
+  `mcp`∈both).
+- **Expected observable outcome:** `mcp` reaches both peers; `neo4j` and `llm-proxy` reach
+  neither each other nor cross-net peers.
+- **Failure behaviour:** Any cross-net reachability between `neo4j` and `llm-proxy` fails the
+  build (fail closed).
+- **Verification method:** Combined result of **AC-C3** (mcp→both) and **AC-C5** (db↔llm
+  isolation) reachability probes.
+
+#### AC-G5 — Local embedder feeds working vector search
+- **Trigger:** Content is stored (embedded locally) and then retrieved via semantic search.
+- **Preconditions:** AC-C7 holds; the Neo4j vector index is created by the framework.
+- **Expected observable outcome:** `memory_search` returns semantically relevant results for a
+  query that shares no exact tokens with the stored text, proving embeddings + vector index
+  work end to end.
+- **Failure behaviour:** If embedding or indexing is broken, semantic search returns no/random
+  results and the criterion fails.
+- **Verification method:** Offline-model load (AC-C7) plus tool smoke sequence extended with a
+  paraphrase query asserting a relevant hit.
+
+#### AC-G6 — The owned delta stays thin and declarative
+- **Trigger:** The repository's owned files are reviewed against §3.3.
+- **Preconditions:** The framework is consumed as a pinned dependency (NG2), not vendored.
+- **Expected observable outcome:** The owned, non-generated delta is limited to the artifacts
+  enumerated in §3.3 (mcp image, LiteLLM config, compose file, env, docs/smoke tests); no
+  bespoke memory-engine module exists in the repo or the `mcp` image.
+- **Failure behaviour:** Introduction of custom memory logic (Cypher for memory ops, entity
+  extraction, embedding code) is treated as a spec violation to be removed or escalated to §10.
+- **Verification method:** Scripted inventory asserting the owned source set ⊆ §3.3 artifacts
+  and that no module imports/defines memory-engine logic. *(Partly declarative; see §10 — this
+  is the weakest-to-mechanise criterion.)*
 
 ## 10. Open questions / future work
 
+- **AC-G6 is only partly mechanisable.** "Thin and declarative delta" (G6) has no crisp
+  observable outcome; its §9 verification currently relies on a scripted file-inventory proxy
+  plus review. Decide whether to (a) accept the proxy check as sufficient, or (b) define a
+  stricter, fully automatable rule (e.g. a lint that fails on any memory-engine import or
+  Cypher-for-memory outside the framework).
 - Pin the exact framework version and Anthropic model id (needs confirmation). Placeholders
   currently in code: `neo4j-agent-memory[mcp]==0.2.0` (`docker/mcp.Dockerfile`) and
   `anthropic/claude-3-5-sonnet-latest` (`litellm/config.yaml`) — both must be confirmed
