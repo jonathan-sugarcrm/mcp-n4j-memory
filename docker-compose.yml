@@ -40,9 +40,13 @@ services:
       NEO4J_USER: ${NEO4J_USER:-neo4j}
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:-change-me}
       NEO4J_DATABASE: ${NEO4J_DATABASE:-neo4j}
-      NAM_LLM: ${NAM_LLM:-openai/claude}
-      NAM_LLM_API_KEY: ${NAM_LLM_API_KEY:-change-me}
-      NAM_EMBEDDING: ${NAM_EMBEDDING:-BAAI/bge-small-en-v1.5}
+      NAM_LLM__PROVIDER: ${NAM_LLM__PROVIDER:-openai}
+      NAM_LLM__MODEL: ${NAM_LLM__MODEL:-claude}
+      NAM_LLM__API_KEY: ${NAM_LLM__API_KEY:-change-me}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-http://llm-proxy:4000/v1}
+      NAM_EMBEDDING__PROVIDER: ${NAM_EMBEDDING__PROVIDER:-sentence_transformers}
+      NAM_EMBEDDING__MODEL: ${NAM_EMBEDDING__MODEL:-BAAI/bge-small-en-v1.5}
+      NAM_EMBEDDING__DIMENSIONS: ${NAM_EMBEDDING__DIMENSIONS:-384}
       MCP_TRANSPORT: ${MCP_TRANSPORT:-http}
       MCP_HOST: ${MCP_HOST:-0.0.0.0}
       MCP_PORT: ${MCP_PORT:-8080}
