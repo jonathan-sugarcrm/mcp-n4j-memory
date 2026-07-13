@@ -6,7 +6,7 @@ description: >
   roles removes the dominant failure mode of a lone agent: it grades its own homework
   and confirms its own assumptions.
 metadata:
-  revision: 1
+  revision: 2
 ---
 # Spec-Loop: separated-role workflow
 
@@ -97,10 +97,14 @@ Score both with `exercise/comparison-template.md`:
 | Metric | How measured |
 |--------|--------------|
 | Defect detection | # real defects (spec + impl) surfaced before "done" |
+| Reproducibility | # declared PASS claims that fail to reproduce from a clean state using only the documented verification command |
+| Unproven checks | # pass-criteria never shown able to fail (no mutation / failure-path test) |
 | Rework | # slices reopened after being called done |
 | Unsupported assumptions | # Class-3+ choices made with no recorded rationale / no evidence |
 
 Expected signal: Run B detects more defects (independent verifier finds spec defects
 Run A rationalized away), reworks less (assumptions caught at the boundary, not after
 merge), and carries fewer unsupported assumptions (each must be written to cross a
-handoff).
+handoff). Its PASS is also **reproducible from a clean state** and **teeth-proven**,
+whereas a single agent tends to grade its own homework — passing only under env it
+silently supplied, with checks it never failure-tested.
