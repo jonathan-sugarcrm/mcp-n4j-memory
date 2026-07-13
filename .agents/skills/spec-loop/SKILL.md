@@ -1,3 +1,13 @@
+---
+name: spec-loop
+description: >
+  A four-stage pipeline that runs one `SPEC_LOOP.md` pass with **no single agent
+  context allowed to interpret, implement, and judge the same slice**. Splitting the
+  roles removes the dominant failure mode of a lone agent: it grades its own homework
+  and confirms its own assumptions.
+metadata:
+  revision: 1
+---
 # Spec-Loop: separated-role workflow
 
 A four-stage pipeline that runs one `SPEC_LOOP.md` pass with **no single agent
