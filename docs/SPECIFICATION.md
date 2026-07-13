@@ -113,7 +113,8 @@ baked into the `mcp` image at build time so it runs fully offline.
 ### 3.3 What we own (the thin delta)
 
 1. **`mcp` image** (`docker/mcp.Dockerfile`) — installs `neo4j-agent-memory[mcp]` (pinned),
-   bakes the embedding model for offline use, and launches `mcp serve` with the right flags.
+   bakes the embedding model for offline use, and launches the framework console script
+   (`neo4j-agent-memory mcp serve`) with the right flags.
 2. **`llm-proxy` config** (`litellm/config.yaml`) — one Anthropic-backed model, key from env.
 3. **`docker-compose.yml`** — authored at the repository root; defines the three services,
    two segmented networks, and the neo4j volume.
@@ -124,10 +125,12 @@ baked into the `mcp` image at build time so it runs fully offline.
 
 ## 4. Configuration mapping
 
-The framework's `mcp serve` CLI (and env vars) is the integration surface. Key wiring:
+The framework's console script (`neo4j-agent-memory`) is the integration surface; the MCP
+server is launched with its `mcp serve` subcommand. Key wiring:
 
 | Concern | Framework flag / env | Value we set |
 |---------|----------------------|--------------|
+| Command | console script + subcommand | `neo4j-agent-memory mcp serve` |
 | Backend | `--backend` / `NAM_BACKEND` | `bolt` |
 | Neo4j | `--uri`/`NEO4J_URI`, `--user`/`NEO4J_USER`, `--password`/`NEO4J_PASSWORD`, `--database`/`NEO4J_DATABASE` | `bolt://neo4j:7687`, `neo4j`, `<secret>`, `neo4j` |
 | Transport | `--transport`, `--host`, `--port` | `http` (or `sse`), `0.0.0.0`, `8080` |
@@ -181,7 +184,7 @@ Location, Event, Organization) and `UPPER_SNAKE_CASE` relationship types apply a
 | `NAM_LLM` | mcp | `openai/claude`. |
 | `NAM_LLM_API_KEY` | mcp | LiteLLM virtual key (== `LITELLM_MASTER_KEY`). |
 | `NAM_EMBEDDING` | mcp | `BAAI/bge-small-en-v1.5`. |
-| `MCP_TRANSPORT` / `MCP_HOST` / `MCP_PORT` | mcp | `http` / `0.0.0.0` / `8080` (passed to `mcp serve`). |
+| `MCP_TRANSPORT` / `MCP_HOST` / `MCP_PORT` | mcp | `http` / `0.0.0.0` / `8080` (passed to `neo4j-agent-memory mcp serve`). |
 | `LITELLM_MASTER_KEY` | llm-proxy | Virtual key it accepts. |
 | `ANTHROPIC_API_KEY` | **llm-proxy only** | Real Anthropic credential. |
 
@@ -200,9 +203,10 @@ variable above; real secrets never enter VCS.
     neo4j (healthy) and llm-proxy, publishes `:8080`.
   - Networks `db-net` and `llm-net` declared `internal` where practical; the neo4j/mcp
     ports are host-mapped only for local dev.
-- Startup order: neo4j healthy → llm-proxy up → mcp `mcp serve …`.
-- Local dev without docker: run Neo4j + LiteLLM, export env, `uvx "neo4j-agent-memory[mcp]"
-  mcp serve …` (documented in the README).
+- Startup order: neo4j healthy → llm-proxy up → mcp `neo4j-agent-memory mcp serve …`.
+- Local dev without docker: run Neo4j + LiteLLM, export env,
+  `uvx --from "neo4j-agent-memory[mcp]" neo4j-agent-memory mcp serve …`
+  (documented in the README).
 
 ## 9. Verification / testing — acceptance criteria
 
@@ -221,9 +225,14 @@ defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each o
 - **Offline-model load** — start the `mcp` container with egress blocked and load the embedder.
 
 > **Slice status:** the `docker-compose` slice has statically verified compose authoring
-> (AC-DC1/2/3: static parts of AC-C1..C5 plus AC-G4). Runtime probes for AC-C1,
-> AC-C3, AC-C5, AC-C6, AC-C7, AC-G1, AC-G2, AC-G3, AC-G4, and AC-G5 remain
-> pending in the future `stack-up` slice.
+> (AC-DC1/2/3: static parts of AC-C1..C5 plus AC-G4). The `stack-up` runtime
+> sub-slice has now runtime-verified **AC-C1** at the DB/container layer (named
+> `neo4j-data` volume survives a Neo4j restart) and **AC-C5** plus the DB↔LLM-proxy
+> half of **AC-G4** (both negative reachability probes fail). Still pending: the
+> `mcp`-image/runtime criteria **AC-C3**, the `mcp`-bridge half of **AC-G4**,
+> **AC-G1**, **AC-C7**, and the `mcp`-dependent portions of **AC-G2**/**AC-G5**;
+> **AC-C6**, **AC-G3**, and the LLM-triggering parts of **AC-G2**/**AC-G5** also
+> require a real `ANTHROPIC_API_KEY` and remain deferred to a later LLM smoke slice.
 
 ### 9.1 Constraint criteria
 
@@ -382,6 +391,16 @@ defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each o
   currently in code: `neo4j-agent-memory[mcp]==0.2.0` (`docker/mcp.Dockerfile`) and
   `anthropic/claude-3-5-sonnet-latest` (`litellm/config.yaml`) — both must be confirmed
   before merge.
+- **Deferred `mcp` image ENTRYPOINT defect:** `docker/mcp.Dockerfile` currently uses
+  `ENTRYPOINT ["mcp", "serve"]`, but the `neo4j-agent-memory==0.2.0` wheel metadata
+  exposes `neo4j-agent-memory = neo4j_agent_memory.cli:main` and no `mcp` console
+  script; `mcp serve` is a subcommand. In the deferred `mcp`-image slice, change the
+  entrypoint to the console-script invocation (mechanically:
+  `ENTRYPOINT ["neo4j-agent-memory", "mcp", "serve"]`, preserving existing flags).
+- **LLM-dependent runtime verification blocker:** AC-C6, AC-G3, and the LLM-triggering
+  portions of AC-G2/AC-G5 cannot be runtime-verified until a real `ANTHROPIC_API_KEY`
+  is supplied securely to `llm-proxy`; placeholder values are sufficient only for the
+  non-LLM sub-slices.
 - Optionally externalize the embedder into its own container on an `embed-net` if the `mcp`
   image size or CPU cost becomes a concern.
 - Optional host-level egress rules so only `llm-proxy` can reach the internet (beyond docker
