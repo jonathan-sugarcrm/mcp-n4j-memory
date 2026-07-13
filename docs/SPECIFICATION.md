@@ -185,7 +185,8 @@ Location, Event, Organization) and `UPPER_SNAKE_CASE` relationship types apply a
 | `ANTHROPIC_API_KEY` | **llm-proxy only** | Real Anthropic credential. |
 
 `--llm-api-base` has no env var in the framework CLI, so it is passed as a flag in the `mcp`
-container command. A `.env.example` documents every variable; real secrets never enter VCS.
+container command. [`.env.example`](../.env.example) is the authoritative template for every
+variable above; real secrets never enter VCS.
 
 ## 8. Deployment
 
