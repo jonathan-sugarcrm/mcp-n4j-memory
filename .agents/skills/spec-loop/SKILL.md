@@ -50,7 +50,7 @@ live in `docs/spec-loop-runs/<slice-id>/`.
 |-------|------|------------------|-----------------|----------------|
 | 1 | **Specification** | `docs/SPECIFICATION.md` + chosen slice id | `specification.handoff.md` | 1–2 (Understand, Gap-check) |
 | 2 | **Implementation** | `specification.handoff.md` **only** | `implementation.handoff.md` + code changes | 3–4 (Propose, Execute) |
-| 3 | **Verification** | `specification.handoff.md` + `implementation.handoff.md` + the actual repo | `verification.handoff.md` | 5 (Verify) |
+| 3 | **Verification** | `specification.handoff.md` + `implementation.handoff.md` + the actual repo | `verification.handoff.md` + `verification.report.yaml` | 5 (Verify) |
 | 4 | **Reconciliation** | all three handoffs | edits to `docs/SPECIFICATION.md` + `reconciliation.handoff.md` | 6 (Feed back) |
 
 **Boundary rule:** stage N may read only the artifacts named in its Input column.
@@ -68,6 +68,9 @@ defect.
   failure behaviour too).
 - **`verification.handoff.md`** — pass/fail per requirement; missing evidence;
   regressions; **classified failures** (six-type, with routing action); overall verdict.
+  Also emits **`verification.report.yaml`** — the machine-readable, per-requirement proof
+  (evidence items + `defect_type` on every fail) that a consumer can read to decide
+  pass/fail without prose.
 - **`reconciliation.handoff.md`** — the spec edits made (diff summary), which
   defects were folded where, and the next slice to pick.
 

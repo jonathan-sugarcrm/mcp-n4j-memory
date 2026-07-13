@@ -47,7 +47,7 @@ back to the named gate. Never skip ahead to code with an open blocker.
 | 2 | **Gap-check** | Slice + spec | List every unknown needed to fill the five fields, then **classify each** via the *Gate 2 clarification policy* below: investigate technical facts, decide-and-record safe choices, and log only genuine product decisions to **§Open questions** to ask. | Zero unresolved blocking assumptions remain; no criterion has an empty field; every asked item is a product decision. |
 | 3 | **Propose** | Resolved slice | Write **one** `todo` (bounded: a single file/service/check) with its acceptance criteria in the description; add `todo_deps` for ordering. | Slice is small enough to verify in one pass; deps recorded. |
 | 4 | **Execute** | The `todo` | Implement only that slice. Set the todo `in_progress` → `done`. | Change is complete and self-contained; nothing unrelated touched. |
-| 5 | **Verify** | Slice + criteria | Run each criterion's stated **Verification method** — the *smallest* check that proves it (compose config lint, isolation assertion, tool smoke test — see spec §9). Exercise the failure behaviour, not just the happy path. Capture the **evidence bundle** (see below) and **classify every failure** via the *Verification-failure classification* table. | Every gate-1 criterion has an evidence bundle proving it met, or a classified failure is logged. |
+| 5 | **Verify** | Slice + criteria | Run each criterion's stated **Verification method** — the *smallest* check that proves it (compose config lint, isolation assertion, tool smoke test — see spec §9). Exercise the failure behaviour, not just the happy path. Capture the **evidence bundle** (see below), emit the machine-readable **verification report** (`verification.report.yaml`, see below) proving each requirement, and **classify every failure** via the *Verification-failure classification* table. | Not satisfied by "tests pass." Every gate-1 criterion has a `result` in `verification.report.yaml` backed by reproduced evidence, or a classified failure is logged. |
 | 6 | **Feed back** | Defects + discoveries | Fold each classified failure/discovery back into **the code or the spec** per its classified action (never leave it in chat or a todo): tighten a row, resolve/append an Open question, correct §4 wiring, or route a code fix. Then pick the next slice → gate 1. | The loop is **closed**: every result has moved either the code or `SPECIFICATION.md`. Nothing is merely noted. |
 
 ## Closing the loop: results must move code or the spec
@@ -112,6 +112,56 @@ Rules:
 > `docs/spec-loop-runs/docker-compose/implementation.handoff.md` §4 — three requirements,
 > each with reproduced happy-path **and** failure-path evidence, marked `PASS` only because
 > the failure path shows the check can fail.
+
+## Verification report (machine-readable proof)
+
+> **Prove every requirement, don't just report tests pass.** "The test suite passed" is
+> not proof of a requirement unless a listed evidence item ties to that specific
+> requirement. Gate 5 must emit a machine-readable serialization of the evidence bundle
+> and the failure classification so a consumer (CI, another agent) can decide pass/fail
+> without reading prose.
+
+Gate 5 writes `docs/spec-loop-runs/<slice-id>/verification.report.yaml`, one entry per
+gate-1 acceptance criterion:
+
+```yaml
+slice: <slice-id>
+requirements:
+  - id: <criterion id>            # e.g. AUTH-01
+    result: pass | fail
+    evidence:                     # REQUIRED and non-empty when result: pass; each item is one reproduced proof
+      - test: <test name>         # any of: test | command | screenshot | api_response | measurement | static_analysis | deployment
+      - command: <command run>
+    reason: <why it failed>       # REQUIRED when result: fail; omit when pass
+    defect_type: <enum>           # REQUIRED when result: fail; omit when pass
+overall: pass | fail              # pass only if every requirement is pass
+```
+
+**Evidence item keys** are the Evidence-bundle types above: `test`, `command`,
+`screenshot`, `api_response`, `measurement`, `static_analysis`, `deployment`.
+
+**`defect_type` enum** maps 1:1 to the *Verification-failure classification* table above,
+plus one entry for a pass with no reproduced proof:
+
+| `defect_type` | Corresponds to |
+|---------------|-----------------|
+| `code_violation` | Code violates a clear requirement → fix code |
+| `contradictory_requirement` | Requirement is contradictory → fix spec |
+| `missing_evidence` | Requirement cannot be verified, or a claimed pass carries no reproduced evidence → add evidence criteria |
+| `new_constraint` | New technical constraint discovered → update constraints |
+| `unspecified_behaviour` | Behaviour is unspecified → request a product decision |
+| `weak_verification` | Test passes but the outcome is unmet → improve the verification model |
+
+Rules:
+
+- A requirement is `result: pass` **only if** it carries at least one reproduced evidence
+  item that ties to that requirement. A `pass` with empty or missing evidence is itself a
+  `fail` with `defect_type: missing_evidence` — it does not get to remain a pass.
+- Every `fail` entry carries a `reason` and a `defect_type` drawn from the enum above.
+- `overall: pass` requires every requirement entry to be `pass`; otherwise `overall: fail`.
+
+> **Worked example:** see `docs/spec-loop-runs/docker-compose/verification.report.yaml` —
+> the machine-readable counterpart of `verification.handoff.md`.
 
 
 
@@ -206,6 +256,9 @@ An agent applying this policy correctly exhibits:
   → Result` triple (raw, reproducible) is unverified — treat it as failing, not passing.
 - **A passing test is not proof.** If observed behaviour contradicts a green check, fix the
   verification model; never accept the pass.
+- **Proof, not green.** A requirement is not met because a test passed; it is met only
+  when the verification report carries a reproduced evidence item that ties to it. A pass
+  with no evidence is `missing_evidence`.
 - **Open questions block their dependents, not the whole loop.** Log, ask, and pick a
   slice that doesn't depend on the answer.
 - **No new design docs.** Feedback edits the existing spec sections. This file and the

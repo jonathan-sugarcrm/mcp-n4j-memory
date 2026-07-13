@@ -24,7 +24,8 @@ Runs `docs/SPEC_LOOP.md` gate **5 (Verify)**.
 
 - **Input (consume):** `specification.handoff.md`, `implementation.handoff.md`, and the
   **actual repo state** (files, and re-run commands).
-- **Output (produce):** `docs/spec-loop-runs/<slice-id>/verification.handoff.md`.
+- **Output (produce):** `docs/spec-loop-runs/<slice-id>/verification.handoff.md` **and**
+  `docs/spec-loop-runs/<slice-id>/verification.report.yaml`.
 - **Trust nothing asserted.** The implementation handoff's "Evidence" is a *claim* until
   you reproduce it. Prefer re-running the Verification method over reading its logged
   output. A requirement with no reproducible evidence is **fail — missing evidence**, not
@@ -62,6 +63,16 @@ Write `docs/spec-loop-runs/<slice-id>/verification.handoff.md` with these sectio
 5. **Overall verdict** — `PASS` only if every requirement is PASS with reproduced
    evidence and no regressions; otherwise `FAIL` with the blocking items listed.
 
+Also write `docs/spec-loop-runs/<slice-id>/verification.report.yaml`, the
+machine-readable serialization of the same verdict (schema and rules in `SPEC_LOOP.md`
+§"Verification report (machine-readable proof)"): one entry per requirement, `result:
+pass` only when at least one reproduced `evidence` item ties to that requirement (an
+empty/missing evidence array makes it `fail` / `defect_type: missing_evidence`), every
+`fail` carrying a `reason` and a `defect_type` drawn from the six-plus-one enum
+(`code_violation`, `contradictory_requirement`, `missing_evidence`, `new_constraint`,
+`unspecified_behaviour`, `weak_verification`), and `overall: pass` only if every
+requirement is `pass`.
+
 ## Workflow
 
 1. For each requirement in the spec handoff, **run its stated Verification method
@@ -74,7 +85,8 @@ Write `docs/spec-loop-runs/<slice-id>/verification.handoff.md` with these sectio
    §"Verification-failure classification" table, and record the routing action each one
    carries (fix code / fix spec / add evidence criteria / update constraints / request
    product decision / improve verification model).
-6. Write the handoff. Set the overall verdict conservatively.
+6. Write the handoff **and** `verification.report.yaml`. Set the overall verdict
+   conservatively in both.
 
 ## Exit-check
 
@@ -84,3 +96,6 @@ Write `docs/spec-loop-runs/<slice-id>/verification.handoff.md` with these sectio
 - Every failure is classified into one of the six failure types and its routing action
   recorded.
 - Failure behaviour was exercised, not just the happy path.
+- A machine-readable `verification.report.yaml` exists with one entry per requirement;
+  no `pass` lacks reproduced evidence; every `fail` has a `reason` and enum
+  `defect_type`.

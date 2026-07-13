@@ -1,0 +1,21 @@
+slice: docker-compose
+requirements:
+  - id: AC-DC1
+    result: pass
+    evidence:
+      - command: "docker compose config --format json | python3 -c '<AC-DC1 mechanical check>' # happy path, exit 0"
+      - command: "docker compose config --format json | <remove neo4j volumes> | python3 -c '<AC-DC1 mechanical check>' # failure-path teeth, exit 1 (AssertionError: [])"
+      - static_analysis: "docker compose config (static render) — neo4j image/APOC/healthcheck/named /data volume, llm-proxy image/config mount, mcp build/dependencies all present"
+  - id: AC-DC2
+    result: pass
+    evidence:
+      - command: "docker compose config --format json | python3 -c '<AC-DC2 mechanical check>' # happy path, exit 0"
+      - command: "docker compose config --format json | <attach neo4j to llm-net> | python3 -c '<AC-DC2 mechanical check>' # failure-path teeth, exit 1 (AssertionError: {'llm-net', 'db-net'})"
+      - static_analysis: "docker compose config (static render) — db-net and llm-net internal:true, neo4j on db-net only, llm-proxy on llm-net only, mcp bridges both"
+  - id: AC-DC3
+    result: pass
+    evidence:
+      - command: "docker compose config --format json | python3 -c '<AC-DC3 mechanical check>' # happy path, exit 0"
+      - command: "docker compose config --format json | <add ANTHROPIC_API_KEY to mcp> | python3 -c '<AC-DC3 mechanical check>' # failure-path teeth, exit 1 (AssertionError)"
+      - static_analysis: "docker compose config (static render) — allow-listed published ports, nested NAM_LLM__*/NAM_EMBEDDING__* env, ANTHROPIC_API_KEY absent from mcp and present on llm-proxy, NEO4J_AUTH present, OPENAI_BASE_URL=http://llm-proxy:4000/v1"
+overall: pass
