@@ -44,11 +44,89 @@ back to the named gate. Never skip ahead to code with an open blocker.
 | # | Gate | Input | Do | Exit-check |
 |---|------|-------|----|-----------|
 | 1 | **Understand** | `SPECIFICATION.md` | Restate the outcome for the chosen slice as 1–3 acceptance criteria, each carrying all five fields (Trigger, Preconditions, Expected observable outcome, Failure behaviour, Verification method). | Each criterion is evaluable pass/fail with no judgement call, and traces to a Goal/Constraint (`G*`/`C*`). |
-| 2 | **Gap-check** | Slice + spec | List what you'd have to *assume* to build it — including any of the five fields you couldn't fill. Each assumption is either resolved from the spec or logged to **§Open questions** and asked. | Zero unresolved blocking assumptions remain; no criterion has an empty field. |
+| 2 | **Gap-check** | Slice + spec | List every unknown needed to fill the five fields, then **classify each** via the *Gate 2 clarification policy* below: investigate technical facts, decide-and-record safe choices, and log only genuine product decisions to **§Open questions** to ask. | Zero unresolved blocking assumptions remain; no criterion has an empty field; every asked item is a product decision. |
 | 3 | **Propose** | Resolved slice | Write **one** `todo` (bounded: a single file/service/check) with its acceptance criteria in the description; add `todo_deps` for ordering. | Slice is small enough to verify in one pass; deps recorded. |
 | 4 | **Execute** | The `todo` | Implement only that slice. Set the todo `in_progress` → `done`. | Change is complete and self-contained; nothing unrelated touched. |
 | 5 | **Verify** | Slice + criteria | Run each criterion's stated **Verification method** — the *smallest* check that proves it (compose config lint, isolation assertion, tool smoke test — see spec §9). Exercise the failure behaviour, not just the happy path. | Every gate-1 criterion is demonstrably met by its verification method, or a defect is logged. |
 | 6 | **Feed back** | Defects + discoveries | Fold each defect/discovery into `SPECIFICATION.md` (tighten a row, resolve/append an Open question, correct §4 wiring). Then pick the next slice → gate 1. | Spec now reflects reality; no discovery left only in chat or a todo. |
+
+## Gate 2 clarification policy
+
+> The dominant failure mode of a coding agent is **not** poor implementation — it is
+> **silent assumption-making**. This policy makes ambiguity handling *deterministic*: the
+> same unknown is classified the same way every time, so the agent neither treats every
+> ambiguity as blocking nor freely invents answers. It is the detailed procedure gate 2 runs.
+
+### The three classes of missing information
+
+| Class | Definition | Agent behaviour |
+|-------|-----------|-----------------|
+| **1 — Missing product decision** | A choice between *legitimate* alternatives that changes observable behaviour, scope, or a contract, and is the **stakeholder's** to make. | **Stop and request a decision.** |
+| **2 — Missing technical fact** | A single correct answer discoverable from code, docs, dependencies, or the environment — no stakeholder needed. | **Investigate and report** (with a citation). |
+| **3 — Safe implementation choice** | Multiple acceptable answers, but reversible and with no product/contract impact — or already implied by an existing convention. | **Decide and record the rationale.** |
+
+### Deterministic classification procedure
+
+For each unknown, run these steps **in order**; the first match wins. Order matters —
+*investigate before you escalate*, and never ask what the repo already answers.
+
+1. **Investigable?** Is there a single correct answer discoverable without a stakeholder
+   (in the spec, code, a dependency's docs, or the environment)? → attempt the investigation.
+   - Found → **Class 2** (record the fact + citation).
+   - Investigation shows there is no single answer, only a genuine either/or → go to 2.
+2. **Stakeholder choice with impact?** Does choosing change externally observable behaviour,
+   scope, data, or a public contract — **or** is it a one-way door (costly to reverse) — while
+   more than one option is legitimate? → **Class 1** (stop and ask).
+3. **Otherwise** → **Class 3** (decide and record a one-line rationale).
+
+**Tie-breakers (remove the remaining judgement):**
+- *Convention test* — if the spec or an existing repo convention already implies an answer,
+  it is a **fact** to follow (Class 2), not a decision.
+- *Reversibility test* — two-way door (cheap to change later) leans **Class 3**; one-way door
+  (schema/contract/public API/data migration) leans **Class 1**.
+- *Blast-radius test* — an internal-only default is **Class 3**; anything externally
+  observable is **Class 1**.
+
+### The refinement workflow
+
+1. **Extract explicit requirements** — enumerate what the request literally states; quote the
+   source. Do not add unstated scope.
+2. **Identify unresolved decisions** — list every unknown needed to fill the five fields for
+   the slice's criteria.
+3. **Separate decisions from investigable facts** — apply the classification procedure to each
+   unknown → {Class 1, Class 2, Class 3}.
+4. **Investigate technical facts** — resolve every Class 2 item and cite the source. If an
+   investigation reveals a genuine either/or with impact, reclassify it up to Class 1.
+5. **Present the smallest decision set** — ask *only* the Class 1 items: deduplicated, batched,
+   one decision per question, each with its legitimate options. Class 2 and Class 3 items are
+   never asked.
+6. **Produce the executable specification** — fold answers + facts + recorded safe choices into
+   evaluable five-field criteria (the gate 1 standard), then proceed.
+
+### Smallest-decision-set rules (prevent over-asking)
+
+- **Ask only Class 1.** A question whose answer is investigable (Class 2) or safely
+  inferable (Class 3) is a defect.
+- **Merge and prune.** Combine questions that share an answer; drop any question whose answer
+  stops mattering once an earlier one is decided.
+- **Block dependents, not the loop.** A pending decision blocks only the slices that need it;
+  pick an independent slice and keep moving (see Invariants).
+
+### Recording safe choices
+
+Every Class 3 choice is recorded where the decision lives (a resolved `§Open questions`
+entry, or the todo/criterion), in the form:
+`Chose X over Y because <reversible / follows convention / no contract impact>.`
+A safe choice with no recorded rationale is treated as a silent assumption — the failure
+mode this policy exists to prevent.
+
+### Self-check (how compliance is measured)
+
+An agent applying this policy correctly exhibits:
+- **Assumptions:** only Class 3, each with a recorded rationale; **zero** silent product
+  assumptions.
+- **Questions:** **zero** that were answerable by investigation or an existing convention.
+- **Separation:** every asked item is Class 1; every Class 2 item was investigated, not asked.
 
 ## Invariants
 
