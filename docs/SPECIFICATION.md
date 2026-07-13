@@ -25,7 +25,8 @@ resolution, or embeddings — the framework already ships all of these. Our job 
 framework to:
 
 - a **local, dockerized Neo4j** (self-hosted **bolt** backend),
-- a **LiteLLM proxy** whose only backend is **Anthropic**, for all LLM calls, and
+- a **LiteLLM proxy** whose production backend is **Anthropic** and whose local smoke
+  backend may be a mock LiteLLM response, for all LLM calls, and
 - a **local, offline embedder** (the framework's in-process sentence-transformers model),
 
 …and to enforce the network segmentation constraints below.
@@ -36,8 +37,9 @@ framework to:
   existing clients bind to the same tool names.
 - G2 — Persist all memory in a **local, dockerized Neo4j** knowledge graph (bolt backend).
 - G3 — Route every framework LLM call (extraction, preference detection, observation
-  summarization) through the **LiteLLM proxy → Anthropic**; the MCP server never calls
-  Anthropic directly.
+  summarization) through the **LiteLLM proxy**; production traffic is served by
+  Anthropic behind the proxy, while local smoke tests may use a LiteLLM mock backend.
+  The MCP server never calls Anthropic directly.
 - G4 — Enforce **network segmentation**: the DB and the LLM proxy can never reach each
   other; only the MCP server may reach both.
 - G5 — Produce embeddings from a **local, offline embedder** (no external embedding
@@ -61,7 +63,7 @@ framework to:
 | C3 | MCP has links to DB **and** the LLM proxy | The `mcp` service is attached to both the `db-net` and `llm-net` docker networks. |
 | C4 | All services firewalled | No service publishes to the public internet by default; only explicitly mapped host ports for local dev. Inter-service traffic is confined to internal docker networks. |
 | C5 | LLM proxy firewalled from DB and vice versa | `neo4j` is only on `db-net`; `llm-proxy` is only on `llm-net`. They share **no** network and cannot route to each other. |
-| C6 | Backend LLM is Anthropic | LiteLLM is configured with a single Anthropic-backed model; the framework is pointed at the proxy, never at Anthropic. |
+| C6 | Backend LLM is Anthropic in production | LiteLLM is configured with an Anthropic-backed production model and may also expose a mock-backed local smoke model; the framework is pointed at the proxy, never at Anthropic. |
 | C7 | Local embedder | The framework's **in-process** sentence-transformers embedder (offline model baked into the `mcp` image); no embedding traffic leaves the host. |
 
 ## 3. Architecture
@@ -116,12 +118,14 @@ baked into the `mcp` image at build time so it runs fully offline.
    `neo4j-agent-memory[mcp,sentence-transformers]` (pinned), bakes the embedding model for
    offline use, and launches the framework console script (`neo4j-agent-memory mcp serve`)
    with only accepted serve flags.
-2. **`llm-proxy` config** (`litellm/config.yaml`) — one Anthropic-backed model, key from env.
+2. **`llm-proxy` config** (`litellm/config.yaml`) — one Anthropic-backed production
+   model, key from env, plus an optional mock-backed local smoke model with no provider key.
 3. **`docker-compose.yml`** — authored at the repository root; defines the three services,
    two segmented networks, and the neo4j volume.
 4. **Configuration** — `.env` / compose env that points the framework at Neo4j via
    `NEO4J_*`, routes LLM calls to the proxy via `NAM_LLM__*` + `OPENAI_BASE_URL`, and
-   selects the local embedder; Dockerfile `CMD` selects the transport and profile.
+   selects the local embedder and offline embedding mode; Dockerfile `CMD` selects the
+   transport and profile.
 5. **Docs & smoke tests** — this spec, a README, and a scripted end-to-end check of the
    16 tools against the running stack.
 
@@ -141,22 +145,27 @@ not exposed as serve flags; it is read by the framework's `MemorySettings` from 
 | Transport | Dockerfile `CMD` flags `--transport`, `--host`, `--port` | `http`, `0.0.0.0`, `8080` |
 | HTTP path | FastMCP streamable HTTP default | `/mcp` |
 | Tool profile | Dockerfile `CMD` flag `--profile` | `extended` (16 tools) |
-| LLM provider/model | `NAM_LLM__PROVIDER`, `NAM_LLM__MODEL` | `openai`, `claude` (OpenAI-compatible → LiteLLM) |
+| LLM provider/model | `NAM_LLM__PROVIDER`, `NAM_LLM__MODEL` | `openai`, `claude` for production or `claude-mock` for local smoke (OpenAI-compatible → LiteLLM) |
 | LLM base URL | `OPENAI_BASE_URL` | `http://llm-proxy:4000/v1` |
 | LLM key | `NAM_LLM__API_KEY` | LiteLLM virtual key |
 | Embedder | `NAM_EMBEDDING__PROVIDER`, `NAM_EMBEDDING__MODEL` | `sentence_transformers`, `BAAI/bge-small-en-v1.5` (local, offline) |
 | Embed dims | `NAM_EMBEDDING__DIMENSIONS` | `384` |
+| Embedder offline mode | `HF_HUB_OFFLINE`, `TRANSFORMERS_OFFLINE` | `1`, `1` so the runtime loads the baked model cache and never reaches Hugging Face |
 | Session strategy | `--session-strategy` | `per_conversation` (default) |
 
 > **LLM routing:** we use the framework's OpenAI-compatible settings
-> (`NAM_LLM__PROVIDER=openai`, `NAM_LLM__MODEL=claude`, `NAM_LLM__API_KEY=<virtual key>`)
-> plus `OPENAI_BASE_URL=http://llm-proxy:4000/v1`, rather than configuring Anthropic
-> directly in `mcp`. This guarantees the framework talks only to the proxy (satisfying
-> C5/C6); LiteLLM maps the `claude` model to the real Anthropic model and injects
-> `ANTHROPIC_API_KEY`, which exists **only** in the `llm-proxy` service.
+> (`NAM_LLM__PROVIDER=openai`, `NAM_LLM__MODEL=<LiteLLM model name>`,
+> `NAM_LLM__API_KEY=<virtual key>`) plus `OPENAI_BASE_URL=http://llm-proxy:4000/v1`,
+> rather than configuring Anthropic directly in `mcp`. This guarantees the framework talks
+> only to the proxy (satisfying C5/C6). For production, LiteLLM maps `claude` to the real
+> Anthropic model and injects `ANTHROPIC_API_KEY`, which exists **only** in `llm-proxy`.
+> For local `llm-smoke`, `NAM_LLM__MODEL=claude-mock` uses LiteLLM `mock_response`; the
+> same proxy route and virtual key are used, but no provider secret is required.
 
 The Anthropic API key lives **only** in `llm-proxy`'s environment. The `mcp` service holds a
-LiteLLM virtual key, not the Anthropic key.
+LiteLLM virtual key, not the Anthropic key. At runtime the `mcp` service also sets
+`HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` so the baked `BAAI/bge-small-en-v1.5`
+embedder cache is used with no Hugging Face network access.
 
 ## 5. LiteLLM proxy config
 
@@ -164,16 +173,26 @@ LiteLLM virtual key, not the Anthropic key.
 
 ```yaml
 model_list:
-  - model_name: claude                       # the name the framework requests
+  - model_name: claude                         # production model name
     litellm_params:
       model: anthropic/claude-3-5-sonnet-latest
       api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-mock                    # local/offline llm-smoke model name
+    litellm_params:
+      model: openai/mock-local-smoke
+      mock_response: >
+        {\"entities\":[],\"relationships\":[],\"preferences\":[],\"summary\":\"local mock llm-smoke response\"}
 general_settings:
-  master_key: os.environ/LITELLM_MASTER_KEY   # the virtual key mcp presents
+  master_key: os.environ/LITELLM_MASTER_KEY    # the virtual key mcp presents
 ```
 
 The proxy exposes an OpenAI-compatible `/v1/chat/completions`. Only the model(s) listed here
-are reachable; there is no route from the proxy to Neo4j.
+are reachable; there is no route from the proxy to Neo4j. Production uses the
+Anthropic-backed `claude` entry and a real `ANTHROPIC_API_KEY` supplied only to
+`llm-proxy`. The `llm-smoke` slice may set `NAM_LLM__MODEL=claude-mock` and use the
+mock-backed entry, so no provider secret is needed. In both modes `mcp` presents only the
+LiteLLM virtual key (`NAM_LLM__API_KEY == LITELLM_MASTER_KEY`) and never talks to
+Anthropic directly, preserving C5/C6 isolation.
 
 ## 6. Data & endpoint surface
 
@@ -189,12 +208,14 @@ Location, Event, Organization) and `UPPER_SNAKE_CASE` relationship types apply a
 | `NEO4J_URI` | mcp | `bolt://neo4j:7687`. |
 | `NEO4J_USER` / `NEO4J_DATABASE` | mcp | `neo4j` / `neo4j`. |
 | `NAM_LLM__PROVIDER` | mcp | `openai` (OpenAI-compatible provider routed to LiteLLM). |
-| `NAM_LLM__MODEL` | mcp | `claude` (the LiteLLM model name). |
+| `NAM_LLM__MODEL` | mcp | `claude` for production, or `claude-mock` for local `llm-smoke` (LiteLLM model name). |
 | `NAM_LLM__API_KEY` | mcp | LiteLLM virtual key (== `LITELLM_MASTER_KEY`). |
 | `OPENAI_BASE_URL` | mcp | `http://llm-proxy:4000/v1`. |
 | `NAM_EMBEDDING__PROVIDER` | mcp | `sentence_transformers`. |
 | `NAM_EMBEDDING__MODEL` | mcp | `BAAI/bge-small-en-v1.5`. |
 | `NAM_EMBEDDING__DIMENSIONS` | mcp | `384`. |
+| `HF_HUB_OFFLINE` | mcp | `1`; forces Hugging Face libraries to use the baked model cache at runtime. |
+| `TRANSFORMERS_OFFLINE` | mcp | `1`; prevents transformer model downloads at runtime. |
 | `MCP_TRANSPORT` / `MCP_HOST` / `MCP_PORT` | compose/env template only | Currently not consumed by `neo4j-agent-memory mcp serve`; transport/host/port are supplied by Dockerfile `CMD` flags. Retained only until cleanup removes the dead env wiring. |
 | `LITELLM_MASTER_KEY` | llm-proxy | Virtual key it accepts. |
 | `ANTHROPIC_API_KEY` | **llm-proxy only** | Real Anthropic credential. |
@@ -211,7 +232,8 @@ real secrets never enter VCS.
   - `neo4j` — official image, `NEO4J_PLUGINS=["apoc"]`, named data volume, on `db-net`,
     healthcheck on bolt.
   - `llm-proxy` — LiteLLM image, mounts `litellm/config.yaml`, reads `ANTHROPIC_API_KEY`
-    and `LITELLM_MASTER_KEY`, on `llm-net`.
+    and `LITELLM_MASTER_KEY`, on `llm-net`; local smoke may use a mock-backed model that
+    needs no provider credential.
   - `mcp` — built from `docker/mcp.Dockerfile`, on `db-net` + `llm-net`, `depends_on`
     neo4j (healthy) and llm-proxy, publishes `:8080`.
   - Networks `db-net` and `llm-net` declared `internal` where practical; the neo4j/mcp
@@ -242,10 +264,13 @@ defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each o
 > runtime-verified **AC-C1** at the DB/container layer (named `neo4j-data` volume survives
 > a Neo4j restart) and **AC-C5** plus the DB↔LLM-proxy half of **AC-G4** (both negative
 > reachability probes fail). The `mcp-image-up` slice runtime-verified **AC-C3**, **AC-G1**,
-> the `mcp`-bridge half of **AC-G4**, and **AC-C7** (offline baked embedder returns a
-> 384-dim vector). Remaining for the final `llm-smoke` slice: **AC-C6**, **AC-G3**, and the
-> LLM-triggering parts of **AC-G2**/**AC-G5**, all blocked until a real
-> `ANTHROPIC_API_KEY` is supplied securely to `llm-proxy`.
+> the `mcp`-bridge half of **AC-G4**, and the standalone **AC-C7** baked-embedder load
+> (384-dim vector). The final `llm-smoke` slice is now runnable locally against a
+> compatible LiteLLM mock backend: proxy routing/isolation (**AC-C6/AC-G3**), persistence
+> through an LLM-triggering store (**AC-G2**), and semantic vector search with the runtime
+> offline embedder (**AC-G5**) are in scope. The positive proof that the production model is
+> served by real Anthropic remains deferred to an environment with a real
+> `ANTHROPIC_API_KEY`.
 
 ### 9.1 Constraint criteria
 
@@ -302,31 +327,37 @@ defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each o
 - **Verification method:** Reachability probe `neo4j → llm-proxy:4000` and
   `llm-proxy → neo4j:7687`, both asserted to fail. (Satisfies **G4**; see AC-G4.)
 
-#### AC-C6 — Backend LLM is Anthropic, reached only via the proxy
+#### AC-C6 — Backend LLM is reached only via the proxy
 - **Trigger:** A framework operation that issues an LLM call (e.g. entity extraction during
   `memory_store_message`) runs.
-- **Preconditions:** LiteLLM lists a single Anthropic-backed model; the framework's
-  `NAM_LLM__PROVIDER=openai`, `NAM_LLM__MODEL=claude`, `NAM_LLM__API_KEY=<virtual key>`,
-  and `OPENAI_BASE_URL=http://llm-proxy:4000/v1` point it at the proxy;
-  `ANTHROPIC_API_KEY` exists **only** in the `llm-proxy` environment.
-- **Expected observable outcome:** The request appears in `llm-proxy` logs and is served by the
-  Anthropic-backed model; the `mcp` container holds no Anthropic credential.
+- **Preconditions:** LiteLLM lists an Anthropic-backed production model and may list a
+  mock-backed local smoke model; the framework's `NAM_LLM__PROVIDER=openai`,
+  `NAM_LLM__MODEL=<LiteLLM model name>`, `NAM_LLM__API_KEY=<virtual key>`, and
+  `OPENAI_BASE_URL=http://llm-proxy:4000/v1` point it at the proxy. `ANTHROPIC_API_KEY`
+  exists **only** in the `llm-proxy` environment; local `llm-smoke` may use the mock model
+  and therefore needs no provider key.
+- **Expected observable outcome:** The request appears in `llm-proxy` logs and the `mcp`
+  container holds no Anthropic credential. In local `llm-smoke`, the proxy may serve the
+  request from LiteLLM `mock_response`; in production/keyed verification, the same route is
+  served by the Anthropic-backed model.
 - **Failure behaviour:** With no valid virtual key or proxy route, the LLM call fails at the
   proxy; `mcp` can never fall back to calling Anthropic directly (it has no key or egress).
-- **Verification method:** Config lint asserts a single Anthropic model + key sourced from env;
-  environment assertion that `ANTHROPIC_API_KEY` is unset in `mcp`; tool smoke sequence, then
-  confirm the LLM call is recorded in `llm-proxy` logs.
+- **Verification method:** Config lint asserts the production Anthropic model is key-sourced
+  from env and the local mock model has no provider key; environment assertion that
+  `ANTHROPIC_API_KEY` is unset in `mcp`; tool smoke sequence against the mock model, then
+  confirm the LLM call is recorded in `llm-proxy` logs. A separate production-only check with
+  a real `ANTHROPIC_API_KEY` confirms the Anthropic-backed positive path.
 
 #### AC-C7 — Embedder is local and offline
 - **Trigger:** The `mcp` container starts and loads the embedding model.
-- **Preconditions:** The embedding model is baked into the `mcp` image at build time; the
-  container is started with egress blocked.
-- **Expected observable outcome:** The embedder loads and produces a 384-dim vector with no
-  outbound network request.
+- **Preconditions:** The embedding model is baked into the `mcp` image at build time;
+  `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` are set in the running `mcp` service.
+- **Expected observable outcome:** The embedder loads from the baked cache and produces a
+  384-dim vector with no outbound network request.
 - **Failure behaviour:** If the model is not present locally, load fails at startup rather than
   attempting a network download.
-- **Verification method:** Offline-model load with egress blocked; assert successful load and a
-  384-dim embedding.
+- **Verification method:** Offline-model load with egress blocked; assert successful runtime
+  load from the baked cache and a 384-dim embedding.
 
 ### 9.2 Goal criteria
 
@@ -343,23 +374,29 @@ defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each o
 #### AC-G2 — Memory persists in the local Neo4j graph (bolt)
 - **Trigger:** `memory_store_message` is called, then Neo4j is queried directly over bolt.
 - **Preconditions:** The `NEO4J_*` wiring from §4 is in effect, pointing the framework at the
-  local Neo4j bolt endpoint.
+  local Neo4j bolt endpoint; the LLM-triggering store path is routed through LiteLLM and may
+  use the mock model for local smoke.
 - **Expected observable outcome:** The stored content materialises as node(s) in the Neo4j
   graph, readable via a direct bolt query.
 - **Failure behaviour:** A misconfigured backend surfaces as a store error or an empty
   direct-query result; the criterion fails.
-- **Verification method:** Tool smoke sequence; assert the written node exists via a direct
-  bolt `graph_query` / cypher read. (Supports **AC-C1**.)
+- **Verification method:** Tool smoke sequence using `memory_store_message` against the mock
+  LLM model; assert the written node exists via a direct bolt `graph_query` / cypher read.
+  (Supports **AC-C1**.)
 
 #### AC-G3 — Every LLM call is routed through the proxy
 - **Trigger:** Any framework LLM operation (extraction, preference detection, summarization)
   runs.
-- **Preconditions:** Same as AC-C6 preconditions.
+- **Preconditions:** Same as AC-C6 preconditions; local smoke may use the mock-backed LiteLLM
+  model instead of the Anthropic-backed production model.
 - **Expected observable outcome:** The call is observed in `llm-proxy` logs; no LLM traffic
-  originates directly from `mcp` to the Anthropic API.
+  originates directly from `mcp` to the Anthropic API. Local smoke proves routing/isolation;
+  a keyed production environment separately proves the real Anthropic-backed response path.
 - **Failure behaviour:** `mcp` has no Anthropic key or egress, so a mis-route fails the call at
   the proxy rather than silently reaching Anthropic.
-- **Verification method:** Same as **AC-C6** verification method (shared check).
+- **Verification method:** Same as **AC-C6** mock-friendly routing/isolation verification
+  method. The real-Anthropic positive path is production-only and deferred until a real key is
+  supplied to `llm-proxy`.
 
 #### AC-G4 — Network segmentation holds; only MCP bridges both nets
 - **Trigger:** Reachability probes are run from all three services.
@@ -374,14 +411,17 @@ defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each o
 
 #### AC-G5 — Local embedder feeds working vector search
 - **Trigger:** Content is stored (embedded locally) and then retrieved via semantic search.
-- **Preconditions:** AC-C7 holds; the Neo4j vector index is created by the framework.
+- **Preconditions:** Runtime AC-C7 holds: the `mcp` service has the baked
+  `BAAI/bge-small-en-v1.5` model and sets `HF_HUB_OFFLINE=1` and
+  `TRANSFORMERS_OFFLINE=1`; the Neo4j vector index is created by the framework.
 - **Expected observable outcome:** `memory_search` returns semantically relevant results for a
   query that shares no exact tokens with the stored text, proving embeddings + vector index
   work end to end.
 - **Failure behaviour:** If embedding or indexing is broken, semantic search returns no/random
   results and the criterion fails.
-- **Verification method:** Offline-model load (AC-C7) plus tool smoke sequence extended with a
-  paraphrase query asserting a relevant hit.
+- **Verification method:** Tool smoke sequence stores content, asserts the running server can
+  create 384-dim embeddings from the offline baked model, then runs `memory_search` with a
+  paraphrase query sharing no exact tokens with the stored text and asserts a relevant hit.
 
 #### AC-G6 — The owned delta stays thin and declarative
 - **Trigger:** The repository's owned files are reviewed against §3.3.
@@ -407,10 +447,11 @@ defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each o
   (`docker/mcp.Dockerfile`) and
   `anthropic/claude-3-5-sonnet-latest` (`litellm/config.yaml`) — both must be confirmed
   before merge.
-- **LLM-dependent runtime verification blocker:** AC-C6, AC-G3, and the LLM-triggering
-  portions of AC-G2/AC-G5 cannot be runtime-verified until a real `ANTHROPIC_API_KEY`
-  is supplied securely to `llm-proxy`; placeholder values are sufficient only for the
-  non-LLM sub-slices.
+- **LLM-dependent runtime verification is split by backend:** AC-C6, AC-G3, and the
+  LLM-triggering portions of AC-G2/AC-G5 are no longer blocked for local `llm-smoke` because
+  LiteLLM `mock_response` can provide a compatible proxy-served backend with no provider
+  secret. The positive proof that production traffic is served by real Anthropic remains
+  deferred until a real `ANTHROPIC_API_KEY` is supplied securely to `llm-proxy`.
 - **Cleanup dead MCP transport env:** `docker-compose.yml` and `.env.example` still set
   `MCP_TRANSPORT`, `MCP_HOST`, and `MCP_PORT`, but the current `neo4j-agent-memory mcp serve`
   CLI does not read those env vars; Dockerfile `CMD` flags supply transport/host/port.
