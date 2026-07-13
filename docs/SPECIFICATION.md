@@ -218,7 +218,10 @@ not memory internals:
 
 ## 10. Open questions / future work
 
-- Pin the exact framework version and Anthropic model id (needs confirmation).
+- Pin the exact framework version and Anthropic model id (needs confirmation). Placeholders
+  currently in code: `neo4j-agent-memory[mcp]==0.2.0` (`docker/mcp.Dockerfile`) and
+  `anthropic/claude-3-5-sonnet-latest` (`litellm/config.yaml`) — both must be confirmed
+  before merge.
 - Optionally externalize the embedder into its own container on an `embed-net` if the `mcp`
   image size or CPU cost becomes a concern.
 - Optional host-level egress rules so only `llm-proxy` can reach the internet (beyond docker
