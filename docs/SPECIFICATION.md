@@ -115,7 +115,8 @@ baked into the `mcp` image at build time so it runs fully offline.
 1. **`mcp` image** (`docker/mcp.Dockerfile`) — installs `neo4j-agent-memory[mcp]` (pinned),
    bakes the embedding model for offline use, and launches `mcp serve` with the right flags.
 2. **`llm-proxy` config** (`litellm/config.yaml`) — one Anthropic-backed model, key from env.
-3. **`docker-compose.yml`** — the three services, two segmented networks, the neo4j volume.
+3. **`docker-compose.yml`** — authored at the repository root; defines the three services,
+   two segmented networks, and the neo4j volume.
 4. **Configuration** — `.env` / compose env that pins backend=bolt, points the framework's
    LLM at the proxy, and selects the local embedder + profile.
 5. **Docs & smoke tests** — this spec, a README, and a scripted end-to-end check of the
@@ -190,7 +191,7 @@ variable above; real secrets never enter VCS.
 
 ## 8. Deployment
 
-- `docker-compose.yml`:
+- The authored root `docker-compose.yml` defines:
   - `neo4j` — official image, `NEO4J_PLUGINS=["apoc"]`, named data volume, on `db-net`,
     healthcheck on bolt.
   - `llm-proxy` — LiteLLM image, mounts `litellm/config.yaml`, reads `ANTHROPIC_API_KEY`
@@ -218,6 +219,11 @@ defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each o
 - **Tool smoke sequence** — bring the stack up and drive the MCP transport through
   `memory_store_message` → `memory_search` → `memory_get_entity` → `graph_query`.
 - **Offline-model load** — start the `mcp` container with egress blocked and load the embedder.
+
+> **Slice status:** the `docker-compose` slice has statically verified compose authoring
+> (AC-DC1/2/3: static parts of AC-C1..C5 plus AC-G4). Runtime probes for AC-C1,
+> AC-C3, AC-C5, AC-C6, AC-C7, AC-G1, AC-G2, AC-G3, AC-G4, and AC-G5 remain
+> pending in the future `stack-up` slice.
 
 ### 9.1 Constraint criteria
 
