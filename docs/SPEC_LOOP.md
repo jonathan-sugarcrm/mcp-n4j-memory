@@ -307,10 +307,16 @@ a gate may not exit while its invariant is violated.
   unflagged `--detailed_debug` / model-id / extractor changes in `prod-anthropic-verify`.)*
 - **I6 — Stage-cost calibration (gate 3).** Match stage cost to slice risk. A confirm-only
   or pure-doc slice with **no** risky tag (docker / credentials / network / migration /
-  schema-change / prod) may use the **LIGHT** lane — cheaper models for the mechanical
-  stages, Reconciliation folded into Verify — but the **independent Verification stage is
-  never removed**, so a vacuous confirmation still cannot pass. Any risky tag ⇒ **FULL**
-  four-context rigor; an unreadable/ambiguous risk descriptor defaults to FULL (fail-safe).
+  schema-change / prod) may use the **LIGHT** lane; any risky tag ⇒ **FULL** four-context
+  rigor; an unreadable/ambiguous risk descriptor defaults to FULL (fail-safe). The LIGHT
+  lane's saving comes from exactly **two** moves: (a) merge Specification + Implementation
+  into a single cheaper-model (Haiku-tier) context — safe because a confirm-only/pure-doc
+  slice carries no interpretation risk — and (b) run the mechanical stages on cheaper
+  models. It does **not** collapse the two stages other invariants depend on: the
+  independent **Verification** stage stays intact and separate (a vacuous confirmation
+  still cannot pass — its verdict is re-derived by a context that did not produce it), and
+  **Reconciliation** stays its own stage as the sole writer of `SPECIFICATION.md` (I1).
+  Folding away Verify or Reconciliation is never permitted, in either lane.
   *(Targets the 4-Sonnet-context spend on the confirm-only `pin-framework-version`.)*
 
 ## Slice backlog

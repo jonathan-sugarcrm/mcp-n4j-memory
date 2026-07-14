@@ -67,7 +67,9 @@ Write `docs/spec-loop-runs/<slice-id>/implementation.handoff.md` with these sect
    - **Stage-cost tags (I6):** assess and record the slice's risk tags with the todo
      (`docker` / `credentials` / `network` / `migration` / `schema-change` / `prod`). A
      confirm-only or pure-doc slice with **no** risky tag is LIGHT-lane eligible; any risky
-     tag ⇒ FULL. The lane never removes the independent Verify stage (gate 5).
+     tag ⇒ FULL. LIGHT saves only by merging Spec+Impl into a cheaper-model context and
+     downgrading model tiers on mechanical stages; it never removes the independent Verify
+     stage (gate 5) or the separate Reconciliation stage (sole `SPECIFICATION.md` writer).
 2. **Execute (gate 4):** implement **only** the slice. Match existing local style. Make
    the minimum change that satisfies the criteria — no unrequested features,
    abstractions, or future-proofing.
@@ -101,4 +103,5 @@ Write `docs/spec-loop-runs/<slice-id>/implementation.handoff.md` with these sect
 - **I5:** every changed file is within the handoff's declared in-scope paths; out-of-scope
   temptations are flagged, not applied.
 - **I6:** the slice's risk tags are recorded with the todo, and its LIGHT/FULL lane follows
-  from them (no risky tag + confirm-only/pure-doc ⇒ LIGHT-eligible; Verify stage still runs).
+  from them (no risky tag + confirm-only/pure-doc ⇒ LIGHT-eligible; both the independent
+  Verify stage and the separate Reconciliation stage still run in either lane).
