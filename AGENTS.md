@@ -2,6 +2,41 @@
 
 This file tracks agent-driven progress on this repository. Newest entries first.
 
+## Spec-loop pass: `github-models-llm-backend` slice — COMPLETE (loop closed, PASS)
+
+Ran one full `docs/SPEC_LOOP.md` pass using the four separated roles (isolated contexts, artifact-only handoffs). Gave the memory framework a WORKING, supported real LLM extraction backend by routing the LiteLLM proxy to GitHub Models (a real OpenAI-compatible API, not a subscription wrapper) — closing the positive real-completion path that prod-anthropic-verify left deferred, without needing an sk-ant-api key.
+
+| Stage | Role | Result |
+|-------|------|--------|
+| 1 | Specification | Scoped R1–R4 (proxy routes to GitHub Models; real extraction; mcp holds no GitHub key/egress; egress reuses llm-egress-net). Flagged the primary technical risk: the exact LiteLLM model-string/api_base for GitHub Models was unknown. No Class-1 blockers. |
+| 2 | Implementation | Retargeted the `claude` model_name to GitHub Models; kept Anthropic under a renamed entry and claude-mock. Resolved the model-string empirically: bare `github/` prefix silently routes to the Azure host, so used `model: openai/gpt-4o-mini` + explicit `api_base: https://models.github.ai/inference`. Live-verified a real 200 completion and real extraction (entities falcon/canyon/dawn). |
+| 3 | Verification | Independent judge, re-ran everything from clean state. Overall PASS. Confirmed the real upstream host is models.github.ai (not the Azure fallback), real extraction distinct from stored/mock text, and mcp/neo4j hold no token and cannot reach models.github.ai. .env.example edit judged in-scope; SPECIFICATION.md correctly untouched by Implementation. |
+| 4 | Reconciliation | Folded PASS into SPECIFICATION.md §9/§10: positive real-completion path now resolved via GitHub Models; recorded the github/-prefix→Azure constraint and the broad-token security note; downgraded extractor-wiring-fix (extraction now proven end-to-end); narrowed the remaining Anthropic-specific deferral. |
+
+### Requirements verified (final PASS, reproduced from clean state)
+- **R1** — the `claude` model routes through llm-proxy to GitHub Models and returns a real 200 completion; proxy logs show a genuine models.github.ai upstream call, no mock string.
+- **R2** — a memory_store_message extraction produces genuine GitHub-Models-backed content; bolt read shows real extracted entities, not the mock/verbatim text.
+- **R3** — mcp/neo4j hold no GITHUB_API_KEY/GH_TOKEN and cannot resolve/reach models.github.ai, while the real llm-proxy call succeeds.
+- **R4** — egress scoped: llm-proxy reaches models.github.ai via the existing llm-egress-net; mcp/neo4j cannot; no new network; no AC-C5 regression.
+
+### Key finding (new constraint)
+- LiteLLM's bare `github/` provider prefix silently routes to `models.inference.ai.azure.com`, NOT `models.github.ai`. To hit GitHub Models specifically, use `model: openai/gpt-4o-mini` with explicit `api_base: https://models.github.ai/inference` and `api_key: os.environ/GITHUB_API_KEY`. Recorded as a decision-of-record so it isn't rediscovered.
+
+### Changes landed
+- `litellm/config.yaml` — `claude` model_name retargeted to GitHub Models (openai/gpt-4o-mini + explicit api_base); Anthropic entry preserved under a renamed model_name; claude-mock retained.
+- `docker-compose.yml` — GITHUB_API_KEY added to the llm-proxy service ONLY (mcp/neo4j unchanged); existing llm-egress-net reused (no new network).
+- `.env.example` — documented GITHUB_API_KEY (llm-proxy only).
+- `docs/SPECIFICATION.md` — §9/§10 updated: positive real-completion path resolved via GitHub Models; new github/-prefix constraint and scoped-PAT security note recorded; extractor-wiring-fix downgraded; Anthropic-specific path narrowed and de-prioritized.
+- `docs/spec-loop-runs/github-models-llm-backend/` — specification, implementation, verification (+ verification.report.yaml), and reconciliation handoffs.
+
+### Security / follow-ups
+- This pass used a broad GH_TOKEN. For anything persistent/production, swap to a fine-grained PAT scoped to models:read only, supplied to llm-proxy alone. GitHub Models free tier is rate-limited/prototyping-grade — production scale needs a paid provider key.
+
+### Next slices recommended
+- `scope-github-token` — replace the broad GH_TOKEN with a fine-grained models:read PAT for llm-proxy.
+- `extractor-wiring-fix` (optional, downgraded) — vendored-package cleanup only; extraction already works end-to-end.
+- `prod-anthropic-verify R1` (real Anthropic path) — no longer blocking; only if a real sk-ant-api key appears.
+
 ## Spec-loop pass: `prod-anthropic-verify` slice — PARTIAL (R2/R3/R4 verified against real Anthropic; R1 deferred)
 
 Ran one full `docs/SPEC_LOOP.md` pass using the four separated roles (isolated contexts, 

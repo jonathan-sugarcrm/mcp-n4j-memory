@@ -292,7 +292,32 @@ defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each o
 > succeed with this credential regardless of egress/routing correctness. AC-C6/AC-G3's real
 > Anthropic positive path therefore remains **unverified/deferred**, now pending a genuine
 > `sk-ant-api…` Anthropic API key supplied only to `llm-proxy` (not merely "a credentialed
-> production environment" as previously stated).
+> production environment" as previously stated). The `github-models-llm-backend` slice
+> closed this gap generically (not Anthropic-specifically): it retargeted the `claude`
+> model_name to **GitHub Models** (LiteLLM `model: openai/gpt-4o-mini`, explicit
+> `api_base: https://models.github.ai/inference`, `api_key: os.environ/GITHUB_API_KEY`) — a
+> supported, OpenAI-compatible provider reachable with an ordinary GitHub PAT rather than a
+> scarce Anthropic API key — and, from a clean state, runtime-verified a genuine `200`
+> positive completion end-to-end: a real (non-mock) LiteLLM response with a live `id`/`usage`
+> for a direct proxy call, **and** a real `memory_store_message` extraction whose resulting
+> graph nodes (`MENTIONS` edges to distinct `Entity`/`Event`/`Location`/`Object`/`Time`
+> nodes) are genuinely derived content, not the verbatim stored sentence or the
+> `claude-mock` string. The routing/isolation guarantees already proven mock-only in
+> `llm-smoke` and with a real-but-non-functional Anthropic credential in
+> `prod-anthropic-verify` are unchanged and now proven **with a real, completing backend**:
+> `mcp` and `neo4j` hold no GitHub credential and cannot resolve/reach `models.github.ai`
+> (DNS failure, `internal: true` `db-net`/`llm-net`), while `llm-proxy` — the only service
+> attached to the pre-existing `llm-egress-net` — reaches it over TCP 443; no new network was
+> added. The previous Anthropic entry is preserved, renamed `claude-anthropic`, alongside the
+> unchanged `claude-mock`. **The real-*Anthropic*-specific positive path remains separately
+> deferred** (still needs a genuine `sk-ant-api…` key; see AC-C6/AC-G3 below and §10) — only
+> the *general* "does this architecture support a real, completing LLM backend end-to-end"
+> question is now closed, via GitHub Models. A confirmed **new constraint**: LiteLLM's bare
+> `github/<model>` provider prefix does **not** route to `models.github.ai` — it silently
+> proxies to `models.inference.ai.azure.com` (GitHub Models' underlying Azure AI Inference
+> backend), which still returns a genuine completion but fails any check asserting the
+> `models.github.ai` host specifically. `openai/<model>` + explicit `api_base` is required to
+> hit `models.github.ai` verbatim; this is now the shipped configuration.
 
 ### 9.1 Constraint criteria
 
@@ -364,16 +389,25 @@ defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each o
   served by the Anthropic-backed model.
 - **Failure behaviour:** With no valid virtual key or proxy route, the LLM call fails at the
   proxy; `mcp` can never fall back to calling Anthropic directly (it has no key or egress).
-- **Verification method:** Config lint asserts the production Anthropic model is key-sourced
-  from env and the local mock model has no provider key; environment assertion that
-  `ANTHROPIC_API_KEY` is unset in `mcp`; tool smoke sequence against the mock model, then
-  confirm the LLM call is recorded in `llm-proxy` logs. A separate production-only check with
-  a real `ANTHROPIC_API_KEY` confirms the Anthropic-backed positive path — this **requires a
-  genuine Anthropic API key** (`sk-ant-api…`, issued for API/console use); a claude.ai /
-  Claude Code OAuth bearer token is not accepted by LiteLLM's `anthropic/` provider and will
-  not produce a positive completion regardless of routing/egress correctness
-  (`prod-anthropic-verify`, R1: confirmed via genuine Anthropic `429`/`404` error responses,
-  not a credential-format or routing defect).
+- **Verification method:** Config lint asserts the production model is key-sourced from env
+  and the local mock model has no provider key; environment assertion that the provider
+  credential (`ANTHROPIC_API_KEY` / `GITHUB_API_KEY`, depending on which production model
+  is active) is unset in `mcp`; tool smoke sequence against the mock model, then confirm the
+  LLM call is recorded in `llm-proxy` logs. A separate production-only check with a real
+  provider credential confirms **the configured LLM provider's** positive path (e.g. GitHub
+  Models or Anthropic) — `github-models-llm-backend` closed this for **GitHub Models**: a
+  real `GITHUB_API_KEY` (ordinary GitHub PAT) supplied only to `llm-proxy` produced a genuine
+  `200` completion, confirmed via a `models.github.ai` upstream log line, with `mcp`/`neo4j`
+  independently confirmed to hold no GitHub credential and to be unable to resolve
+  `models.github.ai`. The real-**Anthropic** positive path specifically remains deferred:
+  it **requires a genuine Anthropic API key** (`sk-ant-api…`, issued for API/console use); a
+  claude.ai / Claude Code OAuth bearer token is not accepted by LiteLLM's `anthropic/`
+  provider and will not produce a positive completion regardless of routing/egress
+  correctness (`prod-anthropic-verify`, R1: confirmed via genuine Anthropic `429`/`404` error
+  responses, not a credential-format or routing defect). **New constraint:** LiteLLM's bare
+  `github/<model>` provider prefix does not route to `models.github.ai` — it silently proxies
+  to `models.inference.ai.azure.com`; use `openai/<model>` with an explicit `api_base` to
+  reach `models.github.ai` verbatim (`github-models-llm-backend`).
 
 #### AC-C7 — Embedder is local and offline
 - **Trigger:** The `mcp` container starts and loads the embedding model.
@@ -425,14 +459,18 @@ defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each o
 - **Expected observable outcome:** The call is observed in `llm-proxy` logs; no LLM traffic
   originates directly from `mcp` to the Anthropic API. Local smoke proves routing/isolation;
   a keyed production environment separately proves the real Anthropic-backed response path.
-- **Failure behaviour:** `mcp` has no Anthropic key or egress, so a mis-route fails the call at
-  the proxy rather than silently reaching Anthropic.
+- **Failure behaviour:** `mcp` has no provider key or egress for any production model, so a
+  mis-route fails the call at the proxy rather than silently reaching a real provider
+  directly.
 - **Verification method:** Same as **AC-C6** mock-friendly routing/isolation verification
-  method. The real-Anthropic positive path is production-only and deferred until a real
-  Anthropic **API key** (`sk-ant-api…`) — not an OAuth token — is supplied to `llm-proxy`;
-  `prod-anthropic-verify` confirmed routing/isolation with a real credential but could not
-  close the positive-completion path because the only credential available was a claude.ai
-  OAuth token, which Anthropic's API rejects for this use.
+  method. `github-models-llm-backend` closed the general real-completion path via **GitHub
+  Models** (real `200`, real extraction, `mcp`/`neo4j` confirmed credential-less and
+  unreachable to `models.github.ai`). The real-**Anthropic** positive path specifically
+  remains production-only and deferred until a real Anthropic **API key** (`sk-ant-api…`) —
+  not an OAuth token — is supplied to `llm-proxy`; `prod-anthropic-verify` confirmed
+  routing/isolation with a real credential but could not close the positive-completion path
+  because the only credential available was a claude.ai OAuth token, which Anthropic's API
+  rejects for this use.
 
 #### AC-G4 — Network segmentation holds; only MCP bridges both nets
 - **Trigger:** Reachability probes are run from all three services.
@@ -483,38 +521,95 @@ defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each o
   (`docker/mcp.Dockerfile`) must be confirmed before merge. The Anthropic model id is now
   treated as a **floating fact, re-verified per run** (see "Resolved items" below), not a
   fixed literal — `litellm/config.yaml` currently pins `anthropic/claude-sonnet-4-5`.
-- **Real-Anthropic positive completion remains deferred**, now with a precise, confirmed
-  blocker. `prod-anthropic-verify` runtime-verified, with a **real** Anthropic credential,
-  that `llm-proxy` (and only `llm-proxy`) can reach `api.anthropic.com`, that `mcp` holds no
-  Anthropic key and cannot reach Anthropic even while a real call is in flight, and that the
-  real credential path was genuinely exercised (non-mock, Anthropic-issued `request_id`s).
-  The one still-open item is R1's literal positive-completion outcome: **the credential at
-  `~/.secrets/anthropic.env` is a claude.ai / Claude Code OAuth token, not an Anthropic API
-  key**, and LiteLLM's `anthropic/` provider cannot authenticate to `api.anthropic.com` with
-  an OAuth bearer token — only a real `sk-ant-api…` key will do. This is blocked on supplying
-  such a key to `llm-proxy` only; it is not a routing, isolation, or rate-limit defect in this
-  repo's configuration.
+- **Real-*Anthropic*-specific positive completion remains deferred** (narrowed scope — the
+  general "real, completing LLM backend end-to-end" question is now **resolved**, see
+  "Resolved items" below), now with a precise, confirmed blocker. `prod-anthropic-verify`
+  runtime-verified, with a **real** Anthropic credential, that `llm-proxy` (and only
+  `llm-proxy`) can reach `api.anthropic.com`, that `mcp` holds no Anthropic key and cannot
+  reach Anthropic even while a real call is in flight, and that the real credential path was
+  genuinely exercised (non-mock, Anthropic-issued `request_id`s). The one still-open item is
+  R1's literal positive-completion outcome: **the credential at `~/.secrets/anthropic.env` is
+  a claude.ai / Claude Code OAuth token, not an Anthropic API key**, and LiteLLM's
+  `anthropic/` provider cannot authenticate to `api.anthropic.com` with an OAuth bearer
+  token — only a real `sk-ant-api…` key will do. This is blocked on supplying such a key to
+  `llm-proxy` only; it is not a routing, isolation, or rate-limit defect in this repo's
+  configuration. Lowest priority now that GitHub Models provides a working, supported
+  production backend — close only opportunistically, if/when a real `sk-ant-api…` key
+  becomes available.
 - Optionally externalize the embedder into its own container on an `embed-net` if the `mcp`
   image size or CPU cost becomes a concern.
 - Optional host-level egress rules so only `llm-proxy` can reach the internet (beyond docker
   network scoping — `llm-egress-net` now provides the docker-network-level version of this).
-- **`create_llm_extractor()` wiring gap (needs its own slice — `extractor-wiring-fix`).**
-  `prod-anthropic-verify`'s implementation discovered, by reading the vendored
-  `neo4j-agent-memory==0.2.0` source, that `create_llm_extractor()` never wires
-  `NAM_LLM__API_KEY`/`NAM_LLM__MODEL` into the actual extractor client — it silently falls
-  back to a raw `OPENAI_API_KEY` env var and a hardcoded `gpt-4o-mini` default. This was
-  worked around for `prod-anthropic-verify` by adding `OPENAI_API_KEY`/
-  `NAM_EXTRACTION__LLM_MODEL` (mirroring the existing `NAM_LLM__*` values) to `mcp`'s
-  environment and the `openai` pip extra to `docker/mcp.Dockerfile` — kept in place because
-  reverting would re-block real-Anthropic verification entirely, but this is a distinct,
-  separately-reviewable functional bug in the framework wiring, not a network/egress change,
-  and needs its own spec-loop pass to (a) record the wiring gap as a constraint, (b) decide
-  whether to patch the vendored package instead of duplicating the key via `OPENAI_API_KEY`,
-  and (c) re-verify that the *prior* `llm-smoke` slice's mock-path "PASS" actually exercised
-  real extractor wiring (see `weak_verification` note under "Resolved items").
+- **New constraint: LiteLLM's `github/<model>` provider prefix does not reach
+  `models.github.ai`.** Discovered/confirmed in `github-models-llm-backend`: LiteLLM's
+  documented `github/<model>` provider prefix silently proxies requests to
+  `https://models.inference.ai.azure.com` (GitHub Models' underlying Azure AI Inference
+  backend), not `https://models.github.ai`. It still returns a genuine, non-mock completion,
+  so a check that only asserts "got a real `200`" would pass on the wrong upstream host — a
+  check that must assert `models.github.ai` specifically (as AC-C6/AC-G3 do) will fail
+  against `github/<model>`. The shipped, verified configuration instead uses
+  `model: openai/gpt-4o-mini` with an explicit `api_base: https://models.github.ai/inference`,
+  which does hit `models.github.ai` verbatim. Anyone reconfiguring `litellm/config.yaml` for
+  GitHub Models must use the explicit-`api_base` form, not the `github/` prefix, or silently
+  lose the "only `models.github.ai`" host guarantee.
+- **SECURITY: the `github-models-llm-backend` verification pass used a broad `gh`-CLI OAuth
+  token (`GH_TOKEN`) as `GITHUB_API_KEY`, supplied only to the shell/`llm-proxy` and never
+  persisted.** This was acceptable for a one-off local verification pass but is **not**
+  appropriate for any persistent or production deployment: a broad token can do far more than
+  call GitHub Models. Any lasting configuration must instead use a **fine-grained GitHub PAT
+  scoped to `models: read` only**, supplied to `llm-proxy`'s environment alone (never to
+  `mcp`/`neo4j`), mirroring the existing `ANTHROPIC_API_KEY` isolation pattern.
+- **`create_llm_extractor()` wiring gap — reassessed, `extractor-wiring-fix` narrowed but
+  still open as a framework hygiene item.** `prod-anthropic-verify`'s implementation
+  discovered, by reading the vendored `neo4j-agent-memory==0.2.0` source, that
+  `create_llm_extractor()` never wires `NAM_LLM__API_KEY`/`NAM_LLM__MODEL` into the actual
+  extractor client — it silently falls back to a raw `OPENAI_API_KEY` env var and a
+  hardcoded `gpt-4o-mini` default. The workaround (`OPENAI_API_KEY`/
+  `NAM_EXTRACTION__LLM_MODEL` mirroring `NAM_LLM__*`, plus the `openai` pip extra in
+  `docker/mcp.Dockerfile`) remains unchanged and untouched by `github-models-llm-backend`.
+  **This slice's R2 evidence resolves the `weak_verification` concern raised against
+  `llm-smoke`:** a full clean-state `memory_store_message` → real GitHub-Models extraction →
+  direct bolt read produced genuine, distinct POLE+O-style entities (not the stored sentence,
+  not a mock string), and a manual reproduction from inside `mcp` using the exact same env
+  confirmed the workaround's wiring is what serves the call — so the extractor's LLM call
+  path **is** genuinely exercised end-to-end via the workaround, both here and (by the same
+  mechanism) in `llm-smoke`'s mock path. The underlying framework bug itself (silently
+  ignoring `NAM_LLM__*` in favour of `OPENAI_API_KEY`/a hardcoded model) is unchanged and
+  still worth its own slice to decide whether to patch the vendored package rather than
+  perpetuate the env-variable duplication — but it is no longer a verification-confidence
+  risk, only a code-hygiene one. Priority downgraded accordingly.
 
 ### Resolved items
 
+- **Resolved in `github-models-llm-backend`: a real, completing, non-mock LLM backend now
+  works end-to-end through the proxy — closing the general "positive real-completion path"
+  question left open by `prod-anthropic-verify` (`sk-ant-api…` credential unavailable).**
+  Retargeted the `claude` model_name to **GitHub Models**
+  (`model: openai/gpt-4o-mini` + `api_base: https://models.github.ai/inference` +
+  `api_key: os.environ/GITHUB_API_KEY`, reached only via `llm-proxy` over the pre-existing
+  `llm-egress-net`); `mcp`/`neo4j` hold no GitHub credential and cannot resolve/reach
+  `models.github.ai` (confirmed via env grep and a DNS-failing reachability probe from
+  inside `mcp`, run *while* a real call was in flight). From a clean state
+  (`docker compose down -v` → fresh `up`), independently reproduced twice: (a) a direct
+  proxy call returns a genuine `200` with a real `id`/`usage`, correlated via
+  `llm-proxy` DEBUG logs to an outbound `https://models.github.ai/inference/` POST; (b) a
+  full `memory_store_message` → real GitHub-Models extraction → direct Neo4j bolt read
+  produced genuine, distinct POLE+O-style entities (`Entity`/`Event`/`Location`/`Object`/
+  `Time` nodes via `MENTIONS` edges), not the verbatim stored sentence or the `claude-mock`
+  string. **Decision of record:** the default extraction backend for real (non-mock,
+  non-Anthropic) verification is GitHub Models `openai/gpt-4o-mini` via an **explicit
+  `api_base`**, not LiteLLM's `github/` provider prefix — the latter silently routes to
+  `models.inference.ai.azure.com` instead of `models.github.ai` (still a genuine completion,
+  but the wrong upstream host for any check asserting `models.github.ai` specifically); see
+  the `new_constraint` item above so this isn't rediscovered. The prior Anthropic entry is
+  preserved, renamed `claude-anthropic`; `claude-mock` is untouched. The real-*Anthropic*-
+  specific positive path (needs a genuine `sk-ant-api…` key) remains separately open and is
+  now low priority — see open item above. **Security note:** this pass's verification
+  credential was a broad `gh`-CLI OAuth token, acceptable only for the one-off local pass;
+  any persistent/production use must switch to a fine-grained PAT scoped to `models: read`
+  only, supplied to `llm-proxy` alone (see open item above). GitHub Models' free tier is
+  rate-limited and prototyping-grade, not a production-scale SLA — a production deployment
+  should budget for this or use a paid/enterprise tier.
 - **Resolved in `prod-anthropic-verify`: AC-C6/AC-G3 routing/isolation verified against a
   real Anthropic credential.** A real (non-mock) key exercised the full path: `llm-proxy`
   gained outbound Anthropic reachability via a new, dedicated non-internal `llm-egress-net`

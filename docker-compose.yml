@@ -24,6 +24,7 @@ services:
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-change-me}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-change-me}
+      GITHUB_API_KEY: ${GITHUB_API_KEY:-change-me}
     ports:
       - "4000:4000"
     volumes:

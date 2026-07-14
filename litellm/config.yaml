@@ -1,6 +1,11 @@
 model_list:
   - model_name: claude
     litellm_params:
+      model: openai/gpt-4o-mini
+      api_base: https://models.github.ai/inference
+      api_key: os.environ/GITHUB_API_KEY
+  - model_name: claude-anthropic
+    litellm_params:
       model: anthropic/claude-sonnet-4-5
       api_key: os.environ/ANTHROPIC_API_KEY
   - model_name: claude-mock
