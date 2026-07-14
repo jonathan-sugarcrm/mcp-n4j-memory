@@ -7,8 +7,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libffi-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install neo4j-agent-memory framework with MCP support and the local embedding backend.
-RUN pip install --no-cache-dir "neo4j-agent-memory[mcp,sentence-transformers]==0.2.0"
+# Install neo4j-agent-memory framework with MCP support, the local embedding
+# backend, and the openai extra (OpenAI-compatible client used to call the
+# LiteLLM proxy for the LLMEntityExtractor stage during memory_store_message).
+RUN pip install --no-cache-dir "neo4j-agent-memory[mcp,sentence-transformers,openai]==0.2.0"
 
 # Bake the offline embedding model into the image at build time (satisfies G5/C7).
 # This ensures the model loads with no network access at runtime.

@@ -96,8 +96,11 @@ framework to:
 
 The embedder runs **inside** the `mcp` process (sentence-transformers), so embedding never
 crosses a network boundary. Only `llm-proxy` has an egress route to the public Anthropic
-API; `neo4j` and `mcp` have no reason to reach the internet, and the embedder's model is
-baked into the `mcp` image at build time so it runs fully offline.
+API — via a dedicated, non-internal `llm-egress-net` network attached solely to `llm-proxy`
+(`db-net`/`llm-net` remain `internal: true`; `mcp`/`neo4j` gain no new network attachment;
+confirmed by `prod-anthropic-verify`, R4) — and `neo4j` and `mcp` have no reason to reach the
+internet; the embedder's model is baked into the `mcp` image at build time so it runs fully
+offline.
 
 ### 3.2 What the framework provides (we consume, not build)
 
@@ -169,13 +172,14 @@ embedder cache is used with no Hugging Face network access.
 
 ## 5. LiteLLM proxy config
 
-`litellm/config.yaml` (illustrative):
+`litellm/config.yaml` (illustrative — the underlying Anthropic model id is a floating fact,
+re-verified per run, not a pinned literal; see §10 open items):
 
 ```yaml
 model_list:
   - model_name: claude                         # production model name
     litellm_params:
-      model: anthropic/claude-3-5-sonnet-latest
+      model: anthropic/claude-sonnet-4-5       # id re-verified per run; was claude-3-5-sonnet-latest (retired)
       api_key: os.environ/ANTHROPIC_API_KEY
   - model_name: claude-mock                    # local/offline llm-smoke model name
     litellm_params:
@@ -216,7 +220,6 @@ Location, Event, Organization) and `UPPER_SNAKE_CASE` relationship types apply a
 | `NAM_EMBEDDING__DIMENSIONS` | mcp | `384`. |
 | `HF_HUB_OFFLINE` | mcp | `1`; forces Hugging Face libraries to use the baked model cache at runtime. |
 | `TRANSFORMERS_OFFLINE` | mcp | `1`; prevents transformer model downloads at runtime. |
-| `MCP_TRANSPORT` / `MCP_HOST` / `MCP_PORT` | compose/env template only | Currently not consumed by `neo4j-agent-memory mcp serve`; transport/host/port are supplied by Dockerfile `CMD` flags. Retained only until cleanup removes the dead env wiring. |
 | `LITELLM_MASTER_KEY` | llm-proxy | Virtual key it accepts. |
 | `ANTHROPIC_API_KEY` | **llm-proxy only** | Real Anthropic credential. |
 
@@ -272,9 +275,24 @@ defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each o
 > of **AC-G2** (`memory_store_message` via the mock route produced a node found by a direct
 > Neo4j bolt read), and **AC-G5** semantic vector search (a token-disjoint paraphrase query
 > returned the stored hit against the runtime offline embedder). All four are runtime-
-> reproduced, not static-only. The positive proof that production traffic is served by real
-> Anthropic remains deferred to a credentialed production environment with a real
-> `ANTHROPIC_API_KEY` supplied only to `llm-proxy`.
+> reproduced, not static-only. The `prod-anthropic-verify` slice runtime-verified, against a
+> **real** Anthropic-backed credential, the routing/isolation half of **AC-C6/AC-G3**: the
+> `llm-proxy`-only egress grant (a new non-internal `llm-egress-net` network attached solely
+> to `llm-proxy`; `db-net`/`llm-net` unchanged, still `internal: true`) lets `llm-proxy` reach
+> `api.anthropic.com:443` while `mcp` and `neo4j` remain unreachable to it (DNS fails from
+> both); `mcp` holds no `ANTHROPIC_API_KEY` in any rebuild; and genuine, non-mock Anthropic
+> server responses (real `request_id`s, zero occurrences of the mock string) prove the real
+> credential path was reached end-to-end through the proxy. The one remaining gap is the
+> **positive completion** itself: every triggered call returned a genuine Anthropic error
+> (`404` pre-fix, `429 rate_limit_error` post-fix) rather than a `200`. The confirmed root
+> cause is that the credential available for this verification (`~/.secrets/anthropic.env`)
+> is a **claude.ai / Claude Code OAuth token, not an Anthropic API key** — LiteLLM's
+> `anthropic/` provider authenticates to `api.anthropic.com` with an API key
+> (`sk-ant-api…`) and cannot use an OAuth bearer token, so a real positive completion cannot
+> succeed with this credential regardless of egress/routing correctness. AC-C6/AC-G3's real
+> Anthropic positive path therefore remains **unverified/deferred**, now pending a genuine
+> `sk-ant-api…` Anthropic API key supplied only to `llm-proxy` (not merely "a credentialed
+> production environment" as previously stated).
 
 ### 9.1 Constraint criteria
 
@@ -350,7 +368,12 @@ defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each o
   from env and the local mock model has no provider key; environment assertion that
   `ANTHROPIC_API_KEY` is unset in `mcp`; tool smoke sequence against the mock model, then
   confirm the LLM call is recorded in `llm-proxy` logs. A separate production-only check with
-  a real `ANTHROPIC_API_KEY` confirms the Anthropic-backed positive path.
+  a real `ANTHROPIC_API_KEY` confirms the Anthropic-backed positive path — this **requires a
+  genuine Anthropic API key** (`sk-ant-api…`, issued for API/console use); a claude.ai /
+  Claude Code OAuth bearer token is not accepted by LiteLLM's `anthropic/` provider and will
+  not produce a positive completion regardless of routing/egress correctness
+  (`prod-anthropic-verify`, R1: confirmed via genuine Anthropic `429`/`404` error responses,
+  not a credential-format or routing defect).
 
 #### AC-C7 — Embedder is local and offline
 - **Trigger:** The `mcp` container starts and loads the embedding model.
@@ -405,8 +428,11 @@ defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each o
 - **Failure behaviour:** `mcp` has no Anthropic key or egress, so a mis-route fails the call at
   the proxy rather than silently reaching Anthropic.
 - **Verification method:** Same as **AC-C6** mock-friendly routing/isolation verification
-  method. The real-Anthropic positive path is production-only and deferred until a real key is
-  supplied to `llm-proxy`.
+  method. The real-Anthropic positive path is production-only and deferred until a real
+  Anthropic **API key** (`sk-ant-api…`) — not an OAuth token — is supplied to `llm-proxy`;
+  `prod-anthropic-verify` confirmed routing/isolation with a real credential but could not
+  close the positive-completion path because the only credential available was a claude.ai
+  OAuth token, which Anthropic's API rejects for this use.
 
 #### AC-G4 — Network segmentation holds; only MCP bridges both nets
 - **Trigger:** Reachability probes are run from all three services.
@@ -452,28 +478,82 @@ defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each o
   plus review. Decide whether to (a) accept the proxy check as sufficient, or (b) define a
   stricter, fully automatable rule (e.g. a lint that fails on any memory-engine import or
   Cypher-for-memory outside the framework).
-- Pin the exact framework version and Anthropic model id (needs confirmation). Placeholders
-  currently in code: `neo4j-agent-memory[mcp,sentence-transformers]==0.2.0`
-  (`docker/mcp.Dockerfile`) and
-  `anthropic/claude-3-5-sonnet-latest` (`litellm/config.yaml`) — both must be confirmed
-  before merge.
-- **Real-Anthropic positive path remains deferred to production.** `llm-smoke` runtime-
-  verified AC-C6/AC-G3 routing/isolation and the LLM-triggering portions of AC-G2/AC-G5 using
-  the LiteLLM `claude-mock` mock backend (see §9 slice-status and "Resolved items" below). The
-  one remaining gap is proving the production `claude` model actually serves a real
-  Anthropic-backed completion; that requires a real `ANTHROPIC_API_KEY` supplied only to
-  `llm-proxy` and is deferred to a credentialed production-like environment before merge.
-- **Cleanup dead MCP transport env:** `docker-compose.yml` and `.env.example` still set
-  `MCP_TRANSPORT`, `MCP_HOST`, and `MCP_PORT`, but the current `neo4j-agent-memory mcp serve`
-  CLI does not read those env vars; Dockerfile `CMD` flags supply transport/host/port.
-  Remove the dead env wiring or introduce an explicit wrapper if env-driven transport
-  remains desired.
+- Pin the exact framework version and Anthropic model id (needs confirmation). Placeholder
+  currently in code: `neo4j-agent-memory[mcp,sentence-transformers,openai]==0.2.0`
+  (`docker/mcp.Dockerfile`) must be confirmed before merge. The Anthropic model id is now
+  treated as a **floating fact, re-verified per run** (see "Resolved items" below), not a
+  fixed literal — `litellm/config.yaml` currently pins `anthropic/claude-sonnet-4-5`.
+- **Real-Anthropic positive completion remains deferred**, now with a precise, confirmed
+  blocker. `prod-anthropic-verify` runtime-verified, with a **real** Anthropic credential,
+  that `llm-proxy` (and only `llm-proxy`) can reach `api.anthropic.com`, that `mcp` holds no
+  Anthropic key and cannot reach Anthropic even while a real call is in flight, and that the
+  real credential path was genuinely exercised (non-mock, Anthropic-issued `request_id`s).
+  The one still-open item is R1's literal positive-completion outcome: **the credential at
+  `~/.secrets/anthropic.env` is a claude.ai / Claude Code OAuth token, not an Anthropic API
+  key**, and LiteLLM's `anthropic/` provider cannot authenticate to `api.anthropic.com` with
+  an OAuth bearer token — only a real `sk-ant-api…` key will do. This is blocked on supplying
+  such a key to `llm-proxy` only; it is not a routing, isolation, or rate-limit defect in this
+  repo's configuration.
 - Optionally externalize the embedder into its own container on an `embed-net` if the `mcp`
   image size or CPU cost becomes a concern.
 - Optional host-level egress rules so only `llm-proxy` can reach the internet (beyond docker
-  network scoping).
+  network scoping — `llm-egress-net` now provides the docker-network-level version of this).
+- **`create_llm_extractor()` wiring gap (needs its own slice — `extractor-wiring-fix`).**
+  `prod-anthropic-verify`'s implementation discovered, by reading the vendored
+  `neo4j-agent-memory==0.2.0` source, that `create_llm_extractor()` never wires
+  `NAM_LLM__API_KEY`/`NAM_LLM__MODEL` into the actual extractor client — it silently falls
+  back to a raw `OPENAI_API_KEY` env var and a hardcoded `gpt-4o-mini` default. This was
+  worked around for `prod-anthropic-verify` by adding `OPENAI_API_KEY`/
+  `NAM_EXTRACTION__LLM_MODEL` (mirroring the existing `NAM_LLM__*` values) to `mcp`'s
+  environment and the `openai` pip extra to `docker/mcp.Dockerfile` — kept in place because
+  reverting would re-block real-Anthropic verification entirely, but this is a distinct,
+  separately-reviewable functional bug in the framework wiring, not a network/egress change,
+  and needs its own spec-loop pass to (a) record the wiring gap as a constraint, (b) decide
+  whether to patch the vendored package instead of duplicating the key via `OPENAI_API_KEY`,
+  and (c) re-verify that the *prior* `llm-smoke` slice's mock-path "PASS" actually exercised
+  real extractor wiring (see `weak_verification` note under "Resolved items").
 
 ### Resolved items
+
+- **Resolved in `prod-anthropic-verify`: AC-C6/AC-G3 routing/isolation verified against a
+  real Anthropic credential.** A real (non-mock) key exercised the full path: `llm-proxy`
+  gained outbound Anthropic reachability via a new, dedicated non-internal `llm-egress-net`
+  network attached only to `llm-proxy` (`db-net`/`llm-net` unchanged, still `internal:
+  true`; `mcp`/`neo4j` network membership byte-for-byte unchanged — no AC-C4/AC-C5/AC-G4
+  regression, probes rerun and unchanged); `mcp` was independently confirmed to hold no
+  `ANTHROPIC_API_KEY` and to be unable to reach `api.anthropic.com` even while a real
+  Anthropic call from `llm-proxy` was in flight; and the request/response evidence (real,
+  distinct Anthropic `request_id`s, zero occurrences of the mock string) proves the real
+  credential path was genuinely reached, not the mock short-circuit. See updated §3.1,
+  §9 slice-status, AC-C6/AC-G3 above.
+- **Resolved: production Anthropic model id updated from the retired
+  `claude-3-5-sonnet-latest` to `claude-sonnet-4-5`.** The old id no longer resolves on
+  Anthropic's live API (confirmed via a genuine `404 not_found_error` with a real Anthropic
+  `request_id`, not a local/litellm error) — an external model-lifecycle fact, not a defect
+  in this repo's prior reasoning. `litellm/config.yaml`'s `claude`/`claude-mock` entries were
+  updated accordingly; the exact model id is now treated as a floating fact to be
+  re-verified per run rather than an immutable literal (see open item above).
+- **Not yet resolved (recorded precisely): the real-Anthropic positive-completion path
+  (R1) is blocked on credential type, not routing/isolation/rate-limiting.** Every triggered
+  call during `prod-anthropic-verify` returned a genuine Anthropic error (`404` pre model-id
+  fix, `429 rate_limit_error` post-fix, each with distinct real `request_id`s) rather than a
+  `200`. The confirmed root cause: the only credential available
+  (`~/.secrets/anthropic.env`) is a claude.ai/Claude Code **OAuth token**, which LiteLLM's
+  `anthropic/` provider cannot use to authenticate to `api.anthropic.com` — only a genuine
+  `sk-ant-api…` **API key** will. This remains open pending such a key, scoped to
+  `llm-proxy` only; see open item above and AC-C6/AC-G3 Verification method.
+- **Split out for its own slice: `create_llm_extractor()` ignores `NAM_LLM__API_KEY`/
+  `NAM_LLM__MODEL`.** Discovered during `prod-anthropic-verify` and worked around there
+  (`OPENAI_API_KEY`/`NAM_EXTRACTION__LLM_MODEL` added to `mcp`'s environment; `openai` pip
+  extra added to `docker/mcp.Dockerfile`) only because it fully blocked R1/R2 from being
+  exercised at all. This is a distinct, separately-reviewable framework-wiring bug, not part
+  of `prod-anthropic-verify`'s network/egress scope — tracked as the `extractor-wiring-fix`
+  open item above. **`weak_verification` flag against the prior `llm-smoke` slice:** because
+  this wiring gap predates `prod-anthropic-verify`, the `llm-smoke` slice's mock-path "PASS"
+  for AC-C6/AC-G3/AC-G2 may not have genuinely exercised the extractor's LLM call path either
+  (`memory_store_message` does not surface per-stage extraction failures as tool errors, so a
+  silently-failing extraction would not have been visible to that slice's verification). This
+  is not yet independently confirmed and must be re-checked as part of `extractor-wiring-fix`.
 
 - **Resolved in `llm-smoke`: AC-C6/AC-G3 proxy routing/isolation and the LLM-triggering
   portions of AC-G2/AC-G5 are runtime-verified.** LiteLLM's `claude-mock` `mock_response`
@@ -494,3 +574,24 @@ defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each o
   serve flags (`--transport`, `--host`, `--port`, `--profile`). The obsolete
   `--backend`, `--llm`, `--llm-api-base`, and `--embedding` flags are no longer part of the
   durable spec.
+- **Resolved in `mcp-env-cleanup`: dead `MCP_TRANSPORT`/`MCP_HOST`/`MCP_PORT` env wiring
+  removed.** Deleted the three unread vars from `docker-compose.yml`'s `mcp.environment:`
+  block, `.env.example`'s "MCP transport" section, and the §7 config table row. Transport,
+  host, and port continue to be supplied solely by `docker/mcp.Dockerfile`'s hardcoded
+  `CMD` flags (`--transport http --host 0.0.0.0 --port 8080`), which were not modified.
+  Runtime regression check (`docker compose up`, `mcp` reaches `healthy`, TCP connect to
+  `8080` succeeds) reproduced clean, confirming the vars were genuinely dead.
+  Verification (gate 5) additionally found and this slice remediated two **process**
+  defects in the *first* draft of the spec handoff, both now folded back here rather than
+  left as loose notes: (1) `contradictory_requirement` — the original single REQ-2 asked
+  one stage to both land the `.env.example` edit and write `docs/SPECIFICATION.md`,
+  crossing the Implementation/Reconciliation boundary; gate 1 re-scoped it into REQ-2a
+  (Implementation: `.env.example` only) and REQ-2b (Reconciliation: this `SPECIFICATION.md`
+  edit), restoring the single-writer rule in `reconciliation-agent/SKILL.md`.
+  (2) `weak_verification` — REQ-2b's verification method was tightened to add an explicit
+  process/provenance check (no implementation-stage diff may touch `docs/SPECIFICATION.md`;
+  authorship is evidenced by a `reconciliation.handoff.md` entry for the slice), so a
+  content-only grep can no longer pass a same-text edit made by the wrong stage. This
+  `SPECIFICATION.md` edit (§7 row removal, §10 item resolution) is authored by the
+  Reconciliation stage for `mcp-env-cleanup`, satisfying REQ-2b; see
+  `docs/spec-loop-runs/mcp-env-cleanup/reconciliation.handoff.md`.

@@ -30,6 +30,7 @@ services:
       - ./litellm/config.yaml:/app/config.yaml:ro
     networks:
       - llm-net
+      - llm-egress-net
 
   mcp:
     build:
@@ -43,15 +44,23 @@ services:
       NAM_LLM__PROVIDER: ${NAM_LLM__PROVIDER:-openai}
       NAM_LLM__MODEL: ${NAM_LLM__MODEL:-claude}
       NAM_LLM__API_KEY: ${NAM_LLM__API_KEY:-change-me}
+      # The framework's LLMEntityExtractor stage uses the openai SDK directly
+      # and reads OPENAI_API_KEY (not NAM_LLM__API_KEY) when no api_key is
+      # passed explicitly. Must match llm-proxy's LITELLM_MASTER_KEY so the
+      # openai client can authenticate to the proxy (this is the LiteLLM
+      # virtual key, never the real ANTHROPIC_API_KEY).
+      OPENAI_API_KEY: ${NAM_LLM__API_KEY:-change-me}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-http://llm-proxy:4000/v1}
+      # The framework's ExtractionConfig.llm_model (default gpt-4o-mini) is a
+      # separate setting from NAM_LLM__MODEL and is not derived from it; must
+      # be set explicitly so the LLMEntityExtractor stage requests the same
+      # model configured on llm-proxy.
+      NAM_EXTRACTION__LLM_MODEL: ${NAM_LLM__MODEL:-claude}
       NAM_EMBEDDING__PROVIDER: ${NAM_EMBEDDING__PROVIDER:-sentence_transformers}
       NAM_EMBEDDING__MODEL: ${NAM_EMBEDDING__MODEL:-BAAI/bge-small-en-v1.5}
       NAM_EMBEDDING__DIMENSIONS: ${NAM_EMBEDDING__DIMENSIONS:-384}
       HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-1}
       TRANSFORMERS_OFFLINE: ${TRANSFORMERS_OFFLINE:-1}
-      MCP_TRANSPORT: ${MCP_TRANSPORT:-http}
-      MCP_HOST: ${MCP_HOST:-0.0.0.0}
-      MCP_PORT: ${MCP_PORT:-8080}
     depends_on:
       neo4j:
         condition: service_healthy
@@ -68,6 +77,9 @@ networks:
     internal: true
   llm-net:
     internal: true
+  # Non-internal: gives llm-proxy (only) a route to the public internet so it
+  # can reach api.anthropic.com. mcp/neo4j are not attached to this network.
+  llm-egress-net: {}
 
 volumes:
   neo4j-data:
