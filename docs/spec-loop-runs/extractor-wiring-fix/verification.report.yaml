@@ -1,0 +1,39 @@
+slice: extractor-wiring-fix
+requirements:
+  - id: REQ-1
+    result: fail
+    evidence:
+      - command: "sed -n '40,62p' docker-compose.yml"
+      - command: "sed -n '1,20p' docker/mcp.Dockerfile"
+      - command: "git status --short && git diff --stat"
+      - static_analysis: "Read SPECIFICATION.md:562-577 and :640-651 in the current repo state; text is unchanged from pre-slice (still 'still open as a framework hygiene item' / 'is not yet independently confirmed'), confirming no Decision-of-record edit was made."
+    reason: >
+      The mechanical sub-check (comments present at docker-compose.yml:48-51/56-59
+      and docker/mcp.Dockerfile, zero functional diff) independently verified PASS.
+      But REQ-1's own "Expected observable outcome" and "Verification method" require
+      an edit to SPECIFICATION.md (Decision-of-record bullet + moving the open item
+      to Resolved) as an Implementation-stage deliverable. This run's role boundary
+      reserves SPECIFICATION.md edits for Reconciliation (gate 6) only, so the
+      requirement as literally written cannot be satisfied by Implementation without
+      either violating that boundary or leaving the outcome unmet. Independently
+      confirmed: SPECIFICATION.md is untouched (git status --short shows no diff to
+      it; the cited lines still read pre-slice). This is a defect in how the
+      requirement assigns its deliverable to a gate, not a defect in the code or in
+      how Implementation handled it (Implementation correctly deferred, per its
+      handoff §5, rather than silently editing the reserved file or silently
+      skipping the outcome).
+    defect_type: contradictory_requirement
+  - id: REQ-2
+    result: pass
+    evidence:
+      - command: "docker compose down -v && NAM_LLM__MODEL=claude-mock docker compose up -d --build"
+      - command: "docker compose exec mcp env | grep -E 'NAM_LLM|NAM_EXTRACTION|OPENAI|ANTHROPIC|GITHUB'"
+      - command: "docker compose port mcp 8080  # confirms host port unpublished, matching implementation's stated reason for running inside the mcp container"
+      - command: "docker cp verify_scratch_check.py mcp-n4j-memory-mcp-1:/tmp/ && docker compose exec mcp python3 /tmp/verify_scratch_check.py"
+      - measurement: "MENTIONS_ENTITIES_COUNT: 0; MENTIONS_ENTITIES_RAW: []; Neo4j GQL notice: relationship type MENTIONS does not exist; ALL_REL_TYPES: [HAS_MESSAGE, FIRST_MESSAGE] only; TOTAL_NODES: 2 (Conversation + Message only)"
+      - command: "docker compose logs mcp | grep -i -E 'extract|json|fail|Stage'"
+      - measurement: "Stage 'LLMEntityExtractor' failed: Failed to parse LLM response as JSON: Expecting value: line 1 column 1 (char 0)"
+      - command: "docker compose down -v && rm -f verify_scratch_check.py && git status --short  # clean teardown confirmed"
+    reason: null
+    defect_type: null
+overall: fail

@@ -2,6 +2,68 @@
 
 This file tracks agent-driven progress on this repository. Newest entries first.
 
+## Spec-loop pass: `pin-framework-version` slice — COMPLETE (loop closed, PASS)
+
+Ran one full `docs/SPEC_LOOP.md` pass using the four separated roles (isolated contexts, artifact-only handoffs). Confirmed the framework version pin before merge. Outcome: CONFIRM-NO-CHANGE.
+
+| Stage | Role | Result |
+|-------|------|--------|
+| 1 | Specification | Gathered PyPI evidence: neo4j-agent-memory==0.2.0 exists (published 2026-05-04, not yanked), all three extras [mcp,sentence-transformers,openai] valid on that release; latest is 0.5.0. Recommended CONFIRM-NO-CHANGE. Assigned SPECIFICATION.md edits to Reconciliation. No Class-1. |
+| 2 | Implementation | Reproduced the pip dry-run resolve (exit 0, ~140 deps) + failure path (==99.0.0 → exit 1). docker/mcp.Dockerfile pin already correct; no code change made; SPECIFICATION.md untouched. |
+| 3 | Verification | Independently re-ran both pip paths from clean state; confirmed the Dockerfile pin matches (line 13) and git diff empty; model-id floating policy untouched. PASS. One minor finding: handoffs cited line 14, actual is line 13. |
+| 4 | Reconciliation | Moved the framework-version half of the §10 item to Resolved (0.2.0 confirmed; upgrade to 0.5.0 deferred to a future slice); kept the Anthropic model-id "floating fact, re-verified per run" policy; corrected the line-13 citation. |
+
+### Requirements outcome
+- **PIN-01** — 0.2.0 resolves cleanly (happy path exit 0; failure path ==99.0.0 exit 1, real teeth).
+- **PIN-02** — docker/mcp.Dockerfile pin correct and unchanged (CONFIRM-NO-CHANGE).
+- **PIN-03** — Anthropic model-id floating-fact policy consistent and untouched.
+
+### Changes landed
+- `docs/SPECIFICATION.md` — §10 framework-version item moved to Resolved (confirmed 0.2.0; 0.5.0 upgrade deferred); model-id policy retained. No code changed.
+- `docs/spec-loop-runs/pin-framework-version/` — four stage handoffs (+ verification.report.yaml).
+
+## Spec-loop pass: `acg6-lint` slice — COMPLETE (loop closed, PASS)
+
+Ran one full `docs/SPEC_LOOP.md` pass using the four separated roles (isolated contexts, artifact-only handoffs). Mechanised AC-G6's "thin delta" guarantee with an automated lint (chose the stricter automatable rule over merely accepting the file-inventory-plus-review proxy).
+
+| Stage | Role | Result |
+|-------|------|--------|
+| 1 | Specification | Established the owned delta is tiny (Dockerfile, LiteLLM config, compose, .env.example, one Python file scripts/llm_smoke.py). Recommended LINT (Class-3). Specified check_thin_delta.sh: inventory allow-list + memory-engine-import/Cypher pattern scan, exact-path allow-list for llm_smoke.py. Assigned SPECIFICATION.md edits to Reconciliation. |
+| 2 | Implementation | Added scripts/check_thin_delta.sh (pure bash+git+grep, no deps). Self-verified: happy path exit 0; planted violation → exit 1 naming file; removed → exit 0; llm_smoke.py correctly suppressed. SPECIFICATION.md untouched. |
+| 3 | Verification | Independently re-ran happy + failure paths; planted a violation even disguised under the allow-listed docs/ prefix (still caught); confirmed llm_smoke.py suppressed by allow-list (not accidental non-match). PASS. Two non-blocking findings: lint only scans tracked files; Check B could over-match comments/strings or miss non-scanned file types. |
+| 4 | Reconciliation | Rewrote AC-G6's §9.2 verification method to run bash scripts/check_thin_delta.sh; moved the §10 "only partly mechanisable" item to Resolved with the decision-of-record and the two known limitations. |
+
+### Requirements outcome
+- **LINT-01** — clean repo: lint exits 0 (54 files scanned).
+- **LINT-02** — planted violation exits non-zero and names the file; removal returns to exit 0.
+
+### Changes landed
+- `scripts/check_thin_delta.sh` — new thin-delta lint (Check A inventory + Check B pattern scan; allow-lists scripts/llm_smoke.py).
+- `docs/SPECIFICATION.md` — AC-G6 (§9.2) verification method now runs the lint; §10 item moved to Resolved with known limitations.
+- `docs/spec-loop-runs/acg6-lint/` — four stage handoffs (+ verification.report.yaml).
+
+## Spec-loop pass: `extractor-wiring-fix` slice — COMPLETE (loop closed, PASS)
+
+Ran one full `docs/SPEC_LOOP.md` pass using the four separated roles (isolated contexts, artifact-only handoffs). Resolved the create_llm_extractor() wiring item (code-hygiene) and re-checked the weak_verification flag against llm-smoke. Outcome: KEEP the env-mirror workaround; important empirical finding about the mock path.
+
+| Stage | Role | Result |
+|-------|------|--------|
+| 1 | Specification | Recommended KEEP (formally adopt the env-mirror workaround: mcp sets OPENAI_API_KEY/NAM_EXTRACTION__LLM_MODEL mirroring NAM_LLM__*, plus openai pip extra), Class-3, since patching a pinned pip package is brittle and its source isn't in-tree. Defined a falsifiable re-check: claude-mock returns a fixed non-JSON string, so the mock path should yield ZERO MENTIONS-linked entity nodes. |
+| 2 | Implementation | No functional code change (clarifying comments already present). Ran the falsifiable check: fresh mock-path memory_store_message → 0 entity nodes, with mcp logs showing "LLMEntityExtractor ... Failed to parse LLM response as JSON". Correctly deferred SPECIFICATION.md edits to Reconciliation. |
+| 3 | Verification | Independently reproduced the mock-path check from clean state: 0 entity nodes, same JSON-parse-failure mechanism. PASS on REQ-2. Flagged REQ-1's contradictory_requirement defect (spec handoff wrongly assigned a SPECIFICATION.md edit to Implementation) — same defect class as mcp-env-cleanup; routed to gate 1. |
+| 4 | Reconciliation | (after a gate-1 fix reassigning the spec edit) Adopted the KEEP decision-of-record and moved the extractor-wiring item to Resolved; fixed the §10 self-contradiction using the proven fact — llm-smoke's mock-path PASS is correctly scoped to persistence/routing only; genuine structured extraction is proven only by the real GitHub-Models path. |
+
+### Requirements outcome
+- **REQ-1** — KEEP the env-mirror extractor wiring, formally adopted and documented (deleting the mirror silently breaks extraction).
+- **REQ-2** — proven: mock path yields ZERO structured-extraction entities (JSON-parse failure), so llm-smoke's mock PASS never exercised extraction; resolves the weak_verification flag.
+
+### Process note
+- Recurring boundary defect: the specification handoff again bundled a SPECIFICATION.md edit into Implementation scope (contradictory_requirement); caught by the independent verifier, fixed at gate 1, and the edit authored by Reconciliation.
+
+### Changes landed
+- `docs/SPECIFICATION.md` — extractor-wiring item moved to Resolved (KEEP decision-of-record); §10 self-contradiction about llm-smoke's extractor exercise fixed with proven evidence. No functional code change.
+- `docs/spec-loop-runs/extractor-wiring-fix/` — four stage handoffs (+ verification.report.yaml).
+
 ## Spec-loop pass: `github-models-llm-backend` slice — COMPLETE (loop closed, PASS)
 
 Ran one full `docs/SPEC_LOOP.md` pass using the four separated roles (isolated contexts, artifact-only handoffs). Gave the memory framework a WORKING, supported real LLM extraction backend by routing the LiteLLM proxy to GitHub Models (a real OpenAI-compatible API, not a subscription wrapper) — closing the positive real-completion path that prod-anthropic-verify left deferred, without needing an sk-ant-api key.

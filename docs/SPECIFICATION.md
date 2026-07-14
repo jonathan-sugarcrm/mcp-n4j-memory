@@ -505,22 +505,27 @@ defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each o
   bespoke memory-engine module exists in the repo or the `mcp` image.
 - **Failure behaviour:** Introduction of custom memory logic (Cypher for memory ops, entity
   extraction, embedding code) is treated as a spec violation to be removed or escalated to §10.
-- **Verification method:** Scripted inventory asserting the owned source set ⊆ §3.3 artifacts
-  and that no module imports/defines memory-engine logic. *(Partly declarative; see §10 — this
-  is the weakest-to-mechanise criterion.)*
+- **Verification method:** Run `bash scripts/check_thin_delta.sh` from the repository root.
+  The script mechanises the two checks that can be made evaluable: (a) a file-inventory check
+  that every `git ls-files`-tracked path matches the §3.3 owned-delta allow-list, and (b) a
+  pattern lint that fails on any tracked `*.py`/`*.ts`/`*.js`/`*.go` file containing a
+  memory-engine driver reference (`import neo4j` / `from neo4j` / `GraphDatabase`) or a
+  Cypher clause opener for a memory operation (`MATCH (`, `MERGE (`, `CREATE (`), exact-path
+  allow-listing the one legitimate exception, `scripts/llm_smoke.py` (its direct-bolt-read
+  verification step for R2). Exit `0` = the thin-delta guarantee holds; non-zero names the
+  offending file(s)/line(s) and is a spec violation per the failure behaviour above. The
+  lint scans `git ls-files`, so an untracked/unstaged file cannot be caught by it — this is
+  the check's deliberate scan boundary, not a gap in the criterion. Manual review remains the
+  fallback for the residual judgement the lint cannot mechanise (e.g. non-Python/TS/JS/Go
+  memory logic, or a pattern match hidden in a comment/string). See
+  `docs/spec-loop-runs/acg6-lint/` for the mechanised-check verification pass.
 
 ## 10. Open questions / future work
 
-- **AC-G6 is only partly mechanisable.** "Thin and declarative delta" (G6) has no crisp
-  observable outcome; its §9 verification currently relies on a scripted file-inventory proxy
-  plus review. Decide whether to (a) accept the proxy check as sufficient, or (b) define a
-  stricter, fully automatable rule (e.g. a lint that fails on any memory-engine import or
-  Cypher-for-memory outside the framework).
-- Pin the exact framework version and Anthropic model id (needs confirmation). Placeholder
-  currently in code: `neo4j-agent-memory[mcp,sentence-transformers,openai]==0.2.0`
-  (`docker/mcp.Dockerfile`) must be confirmed before merge. The Anthropic model id is now
-  treated as a **floating fact, re-verified per run** (see "Resolved items" below), not a
-  fixed literal — `litellm/config.yaml` currently pins `anthropic/claude-sonnet-4-5`.
+- The Anthropic model id is treated as a **floating fact, re-verified per run** (see
+  "Resolved items" below), not a fixed literal — `litellm/config.yaml` currently pins
+  `anthropic/claude-sonnet-4-5`; this policy remains current and is unaffected by the
+  framework-version confirmation (now resolved, see below).
 - **Real-*Anthropic*-specific positive completion remains deferred** (narrowed scope — the
   general "real, completing LLM backend end-to-end" question is now **resolved**, see
   "Resolved items" below), now with a precise, confirmed blocker. `prod-anthropic-verify`
@@ -559,27 +564,51 @@ defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each o
   call GitHub Models. Any lasting configuration must instead use a **fine-grained GitHub PAT
   scoped to `models: read` only**, supplied to `llm-proxy`'s environment alone (never to
   `mcp`/`neo4j`), mirroring the existing `ANTHROPIC_API_KEY` isolation pattern.
-- **`create_llm_extractor()` wiring gap — reassessed, `extractor-wiring-fix` narrowed but
-  still open as a framework hygiene item.** `prod-anthropic-verify`'s implementation
-  discovered, by reading the vendored `neo4j-agent-memory==0.2.0` source, that
-  `create_llm_extractor()` never wires `NAM_LLM__API_KEY`/`NAM_LLM__MODEL` into the actual
-  extractor client — it silently falls back to a raw `OPENAI_API_KEY` env var and a
-  hardcoded `gpt-4o-mini` default. The workaround (`OPENAI_API_KEY`/
-  `NAM_EXTRACTION__LLM_MODEL` mirroring `NAM_LLM__*`, plus the `openai` pip extra in
-  `docker/mcp.Dockerfile`) remains unchanged and untouched by `github-models-llm-backend`.
-  **This slice's R2 evidence resolves the `weak_verification` concern raised against
-  `llm-smoke`:** a full clean-state `memory_store_message` → real GitHub-Models extraction →
-  direct bolt read produced genuine, distinct POLE+O-style entities (not the stored sentence,
-  not a mock string), and a manual reproduction from inside `mcp` using the exact same env
-  confirmed the workaround's wiring is what serves the call — so the extractor's LLM call
-  path **is** genuinely exercised end-to-end via the workaround, both here and (by the same
-  mechanism) in `llm-smoke`'s mock path. The underlying framework bug itself (silently
-  ignoring `NAM_LLM__*` in favour of `OPENAI_API_KEY`/a hardcoded model) is unchanged and
-  still worth its own slice to decide whether to patch the vendored package rather than
-  perpetuate the env-variable duplication — but it is no longer a verification-confidence
-  risk, only a code-hygiene one. Priority downgraded accordingly.
-
 ### Resolved items
+
+- **Resolved in `pin-framework-version` (CONFIRM-NO-CHANGE): the
+  `neo4j-agent-memory[mcp,sentence-transformers,openai]==0.2.0` pin in
+  `docker/mcp.Dockerfile` (line 13) is confirmed correct; no code change was needed.**
+  A real PyPI dependency-resolution dry run (`pip install --dry-run --target=<scratch>
+  "neo4j-agent-memory[mcp,sentence-transformers,openai]==0.2.0"`) exits `0` and resolves
+  cleanly to `neo4j-agent-memory-0.2.0` plus all three extras' dependencies (`fastmcp`,
+  `sentence-transformers`, `openai`; ~140 packages, no conflicts); the same command
+  against a non-existent version (`==99.0.0`) correctly fails (`ERROR: Could not find a
+  version that satisfies the requirement`, listing the real available versions `0.0.1`
+  through `0.5.0`), proving the check has real discriminating power. Both Implementation
+  and Verification independently reproduced this from a clean state. **Decision of
+  record (Class 3):** `0.2.0` is not the newest release on PyPI (latest is `0.5.0`,
+  published ~26 days later), but upgrading is deliberately deferred to a separate,
+  dedicated future slice — a framework-version bump is a one-way-door-adjacent change
+  in blast radius (potential CLI flag / env-var / MCP tool-behaviour drift across the
+  vendored `neo4j-agent-memory` surface this repo depends on) and not what this slice's
+  "confirm the pin" ask covers. `docker/mcp.Dockerfile` was left byte-for-byte
+  unchanged (`git diff` empty, independently confirmed by Implementation and
+  Verification). Authored by Reconciliation (gate 6); see
+  `docs/spec-loop-runs/pin-framework-version/reconciliation.handoff.md`.
+- **Resolved in `acg6-lint`: AC-G6's mechanisable portion is now enforced by an automated lint.** Chose option (b) (a stricter automatable rule) over merely accepting the file-inventory-plus-review proxy. Added `scripts/check_thin_delta.sh` (pure bash + git + grep, no new deps): Check A asserts every `git ls-files`-tracked path matches the §3.3 owned-delta allow-list; Check B fails on any tracked `*.py`/`*.ts`/`*.js`/`*.go` file containing a memory-engine driver reference (`import neo4j` / `from neo4j` / `GraphDatabase`) or a Cypher clause opener (`MATCH (` / `MERGE (` / `CREATE (`), exact-path allow-listing the one legitimate exception `scripts/llm_smoke.py`. Exit `0` = clean; non-zero names the offending file/line. Independently verified from a clean state: happy path exits `0` (54 files scanned); a planted violation — including one disguised under the allow-listed `docs/` prefix — exits non-zero and names the file; `scripts/llm_smoke.py` is correctly suppressed by the allow-list (the patterns DO match there on a raw grep, so it is suppressed, not accidentally non-matching). AC-G6's Verification method (§9.2) now runs this lint. **Known limitations (recorded so they aren't rediscovered):** the lint scans `git ls-files`, so untracked/unstaged files are invisible to it (deliberate scan boundary); and Check B could over-match a pattern inside a comment/string or miss memory logic in non-scanned file types — manual review remains the fallback for that irreducible residual, which AC-G6 cannot fully mechanise.
+
+- **Resolved in `extractor-wiring-fix`: the env-mirror workaround
+  (`OPENAI_API_KEY`/`NAM_EXTRACTION__LLM_MODEL` mirroring `NAM_LLM__*`, plus the `openai`
+  pip extra in `docker/mcp.Dockerfile`) is the adopted, intentional wiring for
+  `create_llm_extractor()`, not a latent duplication bug.** `prod-anthropic-verify`'s
+  implementation discovered, by reading the vendored `neo4j-agent-memory==0.2.0` source,
+  that `create_llm_extractor()` never wires `NAM_LLM__API_KEY`/`NAM_LLM__MODEL` into the
+  actual extractor client — it silently falls back to a raw `OPENAI_API_KEY` env var and a
+  hardcoded `gpt-4o-mini` default. **Decision of record (Class 3, KEEP over PATCH):** the
+  env-mirror is kept as the supported wiring rather than patching the pinned, vendored
+  `neo4j-agent-memory==0.2.0` package, because patching a pinned third-party package at
+  build time is comparatively fragile (can silently break or diverge on the next version
+  bump, and no local copy of the vendored source exists in this checkout to patch against)
+  for a purely cosmetic/hygiene gain, while the env-mirror is already shipped and proven
+  working end-to-end against a real backend (GitHub Models, see below). **Recorded failure
+  mode if these lines are ever deleted as believed-redundant:** `create_llm_extractor()`
+  falls back to an unset `OPENAI_API_KEY` and the hardcoded `gpt-4o-mini` default, and the
+  extraction stage errors or silently no-ops depending on how `memory_store_message`
+  swallows per-stage extraction exceptions. Verified via `docker-compose.yml:48-51`/`:56-59`
+  and `docker/mcp.Dockerfile`'s inline comments (present, unchanged) and zero functional
+  diff to either file. Authored by Reconciliation (gate 6); see
+  `docs/spec-loop-runs/extractor-wiring-fix/reconciliation.handoff.md`.
 
 - **Resolved in `github-models-llm-backend`: a real, completing, non-mock LLM backend now
   works end-to-end through the proxy — closing the general "positive real-completion path"
@@ -642,13 +671,28 @@ defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each o
   (`OPENAI_API_KEY`/`NAM_EXTRACTION__LLM_MODEL` added to `mcp`'s environment; `openai` pip
   extra added to `docker/mcp.Dockerfile`) only because it fully blocked R1/R2 from being
   exercised at all. This is a distinct, separately-reviewable framework-wiring bug, not part
-  of `prod-anthropic-verify`'s network/egress scope — tracked as the `extractor-wiring-fix`
-  open item above. **`weak_verification` flag against the prior `llm-smoke` slice:** because
-  this wiring gap predates `prod-anthropic-verify`, the `llm-smoke` slice's mock-path "PASS"
-  for AC-C6/AC-G3/AC-G2 may not have genuinely exercised the extractor's LLM call path either
-  (`memory_store_message` does not surface per-stage extraction failures as tool errors, so a
-  silently-failing extraction would not have been visible to that slice's verification). This
-  is not yet independently confirmed and must be re-checked as part of `extractor-wiring-fix`.
+  of `prod-anthropic-verify`'s network/egress scope. See the `extractor-wiring-fix` Decision
+  of record above for the KEEP-vs-PATCH disposition of the wiring itself.
+- **Resolved in `extractor-wiring-fix`: the `weak_verification` flag against the prior
+  `llm-smoke` slice's mock-path PASS is confirmed, not dismissed by reasoning-by-analogy.**
+  A fresh clean-state `memory_store_message` call was made over `claude-mock` and a direct
+  Cypher read (`MATCH (m)-[:MENTIONS]->(e) WHERE m.content CONTAINS $marker RETURN
+  labels(e), e`) found **zero** `MENTIONS`-linked entity nodes — the `MENTIONS` relationship
+  type does not exist anywhere in the fresh database at all (confirmed via
+  `db.relationshipTypes()`), and the `mcp` container's logs show `Stage 'LLMEntityExtractor'
+  failed: Failed to parse LLM response as JSON: Expecting value: line 1 column 1 (char 0)` —
+  a direct causal explanation, not just an absence. Independently reproduced twice (once by
+  Implementation, once by Verification, each with its own fresh marker). **`llm-smoke`'s
+  mock-path PASS for AC-C6/AC-G3/AC-G2 therefore proves message persistence, proxy routing,
+  and semantic search over the raw stored content only — not successful structured entity
+  extraction.** Structured entity extraction over the env-mirror wiring is proven only by
+  `github-models-llm-backend`'s real-GitHub-Models run, which produced genuine, distinct
+  POLE+O-style entities via `MENTIONS` edges over the same wiring (see above). §9's
+  slice-status paragraph and the `llm-smoke` resolved-item bullet below already scope their
+  claims to "the LLM-triggering *persistence* portion of AC-G2" and do not claim mock-path
+  extraction was exercised, so no further §9 wording change was needed beyond this
+  reconciliation. Authored by Reconciliation (gate 6); see
+  `docs/spec-loop-runs/extractor-wiring-fix/reconciliation.handoff.md`.
 
 - **Resolved in `llm-smoke`: AC-C6/AC-G3 proxy routing/isolation and the LLM-triggering
   portions of AC-G2/AC-G5 are runtime-verified.** LiteLLM's `claude-mock` `mock_response`
