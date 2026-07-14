@@ -6,7 +6,7 @@ description: >
   picks the next slice. Runs SPEC_LOOP gate 6 (Feed back). The only stage permitted to
   edit SPECIFICATION.md.
 metadata:
-  revision: 1
+  revision: 2
 ---
 
 ## Purpose
@@ -66,6 +66,10 @@ Runs `docs/SPEC_LOOP.md` gate **6 (Feed back)**.
    resolve/append an §10 question, correct wiring). Do not create parallel docs.
 3. If verification's overall verdict was FAIL, record the routing so the blocking stage
    reruns — do not mark the slice done.
+   - **Amend-then-realign (I4):** if the fix amends an upstream artifact mid-loop (e.g. a
+     gate-1 spec-handoff correction), realign **every** downstream artifact that cites the
+     changed fact before re-verification is requested — a stale downstream handoff that
+     still contradicts the amended one is fixed here, not left for another verify pass.
 4. Pick the next slice and record it.
 5. Write the reconciliation handoff.
 

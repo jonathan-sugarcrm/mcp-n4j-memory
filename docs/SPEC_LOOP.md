@@ -261,8 +261,57 @@ An agent applying this policy correctly exhibits:
   with no evidence is `missing_evidence`.
 - **Open questions block their dependents, not the whole loop.** Log, ask, and pick a
   slice that doesn't depend on the answer.
-- **No new design docs.** Feedback edits the existing spec sections. This file and the
-  spec are the only two documents.
+- **No new slice design docs.** Slice feedback edits the existing spec sections rather than
+  spawning a parallel design doc; `SPECIFICATION.md` and this loop doc are the only
+  slice-level documents. (Process/skill docs under `.agents/skills/spec-loop/` — e.g. the
+  stage SKILLs and `exercise/` material — are the loop's own tooling, not slice artifacts,
+  and are exempt.)
+- **Loop-efficiency invariants (I1–I6) are gate exit-conditions, not options.** See the
+  section below; each hardens the loop against a measured, recurring inefficiency.
+
+## Loop-efficiency invariants (I1–I6)
+
+These harden the loop against recurring, **measured** inefficiencies observed across real
+runs (baseline evidence and extrapolated savings:
+`.agents/skills/spec-loop/exercise/baseline-findings.md`). Each is a gate exit-condition —
+a gate may not exit while its invariant is violated.
+
+- **I1 — Single-writer for `SPECIFICATION.md` (gate 1 exit-check).** Only the
+  Reconciliation stage (gate 6) edits `docs/SPECIFICATION.md`. Any requirement that entails
+  a spec edit (moving a §10 item to Resolved, tightening a criterion) **must** be assigned
+  to Reconciliation. A specification handoff that puts a `SPECIFICATION.md` edit in
+  Implementation scope is a `contradictory_requirement` defect and does not exit gate 1.
+  *(Targets the boundary defect seen in `mcp-env-cleanup` and `extractor-wiring-fix`.)*
+- **I2 — Precondition-type gate (before gate 4 Execute).** Before any expensive execution
+  (standing up services, external API calls, model completions), cheaply assert every
+  precondition — credential, tool, service — is the right *kind*: e.g. an Anthropic API key
+  is `sk-ant-api…`, **not** an OAuth `sk-ant-oat…`/`gho_` token; a required service is
+  reachable. If a precondition is the wrong kind, mark the slice `blocked` and stop — do
+  **not** bring up the stack or retry. *(Targets the ~23.5%-of-session waste in
+  `prod-anthropic-verify`, where an OAuth token could never authenticate the API.)*
+- **I3 — Completion = declared artifacts exist (between every stage).** A stage is complete
+  only when its declared output artifacts exist and are non-empty — Verification needs both
+  `verification.handoff.md` **and** `verification.report.yaml`; every other stage needs its
+  handoff. The next gate asserts this before proceeding; never advance on a stage's
+  self-report alone. *(Targets the truncated `g6-reconcile` that silently skipped its
+  handoff.)*
+- **I4 — Amend-then-realign (on any mid-loop amendment).** When an upstream artifact is
+  amended mid-loop (e.g. a gate-1 correction), realign **every** downstream artifact that
+  cites the changed fact *before* re-verifying. A stale downstream handoff contradicting an
+  amended upstream one is fixed at the source, not discovered on an extra verification pass.
+  *(Targets the triple-verification in `mcp-env-cleanup`.)*
+- **I5 — Implementation scope discipline (gate 4 exit-check).** Implementation changes stay
+  within the spec handoff's declared in-scope paths. A change outside that set is **not**
+  applied silently — it is surfaced as a flagged proposal in the implementation handoff
+  ("Out-of-scope observations") for a future slice or a stakeholder decision. *(Targets the
+  unflagged `--detailed_debug` / model-id / extractor changes in `prod-anthropic-verify`.)*
+- **I6 — Stage-cost calibration (gate 3).** Match stage cost to slice risk. A confirm-only
+  or pure-doc slice with **no** risky tag (docker / credentials / network / migration /
+  schema-change / prod) may use the **LIGHT** lane — cheaper models for the mechanical
+  stages, Reconciliation folded into Verify — but the **independent Verification stage is
+  never removed**, so a vacuous confirmation still cannot pass. Any risky tag ⇒ **FULL**
+  four-context rigor; an unreadable/ambiguous risk descriptor defaults to FULL (fail-safe).
+  *(Targets the 4-Sonnet-context spend on the confirm-only `pin-framework-version`.)*
 
 ## Slice backlog
 

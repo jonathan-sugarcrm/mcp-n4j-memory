@@ -7,7 +7,7 @@ description: >
   scope. Runs SPEC_LOOP gates 1–2 (Understand + Gap-check). Does NOT write code and
   does NOT judge correctness.
 metadata:
-  revision: 1
+  revision: 2
 ---
 
 ## Purpose
@@ -56,6 +56,9 @@ in order:
    *test-passes-but-outcome-unmet* failure, tighten the check here so a green result can
    no longer mask an unmet outcome.
 4. **Explicit scope** — bullet list of what is **in** this slice and what is **out**.
+   Any change to `docs/SPECIFICATION.md` this slice implies (moving a §10 item to Resolved,
+   updating a criterion) is **out** of Implementation scope and assigned to the
+   Reconciliation stage (gate 6) — never to Implementation (invariant **I1**).
 5. **Unresolved decisions** — only genuine **Class 1** product decisions (see policy),
    each with its legitimate options. If empty, write "None — cleared at gate 2."
 6. **Recorded facts & safe choices** — Class 2 facts (with citation) and Class 3 safe
@@ -83,3 +86,7 @@ in order:
 - Zero unresolved **blocking** assumptions; every asked item is Class 1.
 - Every Class 3 choice has a recorded rationale (no silent assumptions).
 - Scope explicitly lists in **and** out.
+- **I1 (single-writer):** no requirement assigns a `docs/SPECIFICATION.md` edit to the
+  Implementation stage; every spec edit is assigned to Reconciliation (gate 6). A handoff
+  that puts a `SPECIFICATION.md` edit in Implementation scope is a `contradictory_requirement`
+  defect — reassign it before handing off.
