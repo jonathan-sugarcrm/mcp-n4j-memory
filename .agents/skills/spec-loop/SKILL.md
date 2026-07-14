@@ -112,3 +112,22 @@ merge), and carries fewer unsupported assumptions (each must be written to cross
 handoff). Its PASS is also **reproducible from a clean state** and **teeth-proven**,
 whereas a single agent tends to grade its own homework — passing only under env it
 silently supplied, with checks it never failure-tested.
+
+## Exercise: baseline loop vs invariant-hardened loop
+
+The exercise above tests *role separation*. A second exercise,
+`exercise/invariant-evaluation.md`, tests a different axis: given separation is in place,
+do proposed **process invariants** (e.g. single-writer enforcement, a precondition-type
+gate, artifact-completion checks, amend-then-realign, scope discipline, stage-cost
+calibration) cut rework and wasted tokens **without lowering defect detection or
+reproducibility**?
+
+Run the **same fixed battery of engineered trap slices** through two loop variants — a
+baseline loop and an invariant-hardened loop — where each trap is built to trigger exactly
+one target failure. Score with `exercise/invariant-evaluation.md`, which separates
+**efficiency metrics** (rework loops, wasted-precondition tokens, silent partial stages,
+re-verification count, unflagged out-of-scope diffs, sub-agent contexts) from **guardrail
+metrics** (defect detection, reproducibility, teeth) that must **not** regress. The pass
+condition is an efficiency gain with no guardrail regression; saving tokens by catching
+fewer defects fails the exercise. Each invariant must also be shown to **fire on its own
+trigger** (mutation test) or it scores as unproven.
