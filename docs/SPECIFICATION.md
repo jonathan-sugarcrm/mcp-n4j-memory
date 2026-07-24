@@ -4,7 +4,8 @@
 > It is written before code so the architecture and configuration are agreed up front.
 > Update it as decisions change; it should never lag the code.
 >
-> **How this doc changes:** via the loop in [`SPEC_LOOP.md`](./SPEC_LOOP.md). Each
+> **How this doc changes:** via a four-role review process (specification →
+> implementation → verification → reconciliation). Each
 > implementation pass feeds defects and discoveries back here (tighten a §4 row, resolve or
 > append to §10). Discoveries live nowhere else — no parallel design docs.
 >
@@ -250,7 +251,7 @@ real secrets never enter VCS.
 
 Because the engine is a third-party framework, our criteria target **wiring and isolation**,
 not memory internals. Every criterion below is written to the evaluable, five-field standard
-defined in [`SPEC_LOOP.md`](./SPEC_LOOP.md) ("Anatomy of a requirement"): each one states a
+defined below ("Anatomy of a requirement"): each one states a
 **Trigger**, **Preconditions**, **Expected observable outcome**, **Failure behaviour**, and
 **Verification method**, and traces to a Constraint (`C*`) or Goal (`G*`). IDs are `AC-C*` /
 `AC-G*`. Four underlying checks recur as verification methods and are named once here:
