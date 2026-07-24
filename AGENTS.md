@@ -4,7 +4,7 @@ This file tracks agent-driven progress on this repository. Newest entries first.
 
 ## Spec-loop pass: `pin-framework-version` slice — COMPLETE (loop closed, PASS)
 
-Ran one full `docs/SPEC_LOOP.md` pass using the four separated roles (isolated contexts, artifact-only handoffs). Confirmed the framework version pin before merge. Outcome: CONFIRM-NO-CHANGE.
+Ran one full four-stage review pass using the four separated roles (isolated contexts, artifact-only handoffs). Confirmed the framework version pin before merge. Outcome: CONFIRM-NO-CHANGE.
 
 | Stage | Role | Result |
 |-------|------|--------|
@@ -24,7 +24,7 @@ Ran one full `docs/SPEC_LOOP.md` pass using the four separated roles (isolated c
 
 ## Spec-loop pass: `acg6-lint` slice — COMPLETE (loop closed, PASS)
 
-Ran one full `docs/SPEC_LOOP.md` pass using the four separated roles (isolated contexts, artifact-only handoffs). Mechanised AC-G6's "thin delta" guarantee with an automated lint (chose the stricter automatable rule over merely accepting the file-inventory-plus-review proxy).
+Ran one full four-stage review pass using the four separated roles (isolated contexts, artifact-only handoffs). Mechanised AC-G6's "thin delta" guarantee with an automated lint (chose the stricter automatable rule over merely accepting the file-inventory-plus-review proxy).
 
 | Stage | Role | Result |
 |-------|------|--------|
@@ -44,7 +44,7 @@ Ran one full `docs/SPEC_LOOP.md` pass using the four separated roles (isolated c
 
 ## Spec-loop pass: `extractor-wiring-fix` slice — COMPLETE (loop closed, PASS)
 
-Ran one full `docs/SPEC_LOOP.md` pass using the four separated roles (isolated contexts, artifact-only handoffs). Resolved the create_llm_extractor() wiring item (code-hygiene) and re-checked the weak_verification flag against llm-smoke. Outcome: KEEP the env-mirror workaround; important empirical finding about the mock path.
+Ran one full four-stage review pass using the four separated roles (isolated contexts, artifact-only handoffs). Resolved the create_llm_extractor() wiring item (code-hygiene) and re-checked the weak_verification flag against llm-smoke. Outcome: KEEP the env-mirror workaround; important empirical finding about the mock path.
 
 | Stage | Role | Result |
 |-------|------|--------|
@@ -66,7 +66,7 @@ Ran one full `docs/SPEC_LOOP.md` pass using the four separated roles (isolated c
 
 ## Spec-loop pass: `github-models-llm-backend` slice — COMPLETE (loop closed, PASS)
 
-Ran one full `docs/SPEC_LOOP.md` pass using the four separated roles (isolated contexts, artifact-only handoffs). Gave the memory framework a WORKING, supported real LLM extraction backend by routing the LiteLLM proxy to GitHub Models (a real OpenAI-compatible API, not a subscription wrapper) — closing the positive real-completion path that prod-anthropic-verify left deferred, without needing an sk-ant-api key.
+Ran one full four-stage review pass using the four separated roles (isolated contexts, artifact-only handoffs). Gave the memory framework a WORKING, supported real LLM extraction backend by routing the LiteLLM proxy to GitHub Models (a real OpenAI-compatible API, not a subscription wrapper) — closing the positive real-completion path that prod-anthropic-verify left deferred, without needing an sk-ant-api key.
 
 | Stage | Role | Result |
 |-------|------|--------|
@@ -101,7 +101,7 @@ Ran one full `docs/SPEC_LOOP.md` pass using the four separated roles (isolated c
 
 ## Spec-loop pass: `prod-anthropic-verify` slice — PARTIAL (R2/R3/R4 verified against real Anthropic; R1 deferred)
 
-Ran one full `docs/SPEC_LOOP.md` pass using the four separated roles (isolated contexts, 
+Ran one full four-stage review pass using the four separated roles (isolated contexts, 
 artifact-only handoffs). Goal: provide the positive runtime proof that production 
 memory-ingestion traffic is served by the REAL Anthropic model through the LiteLLM proxy 
 (the last criterion left unverified after llm-smoke, which used a claude-mock stub). A real 
@@ -137,8 +137,8 @@ against real Anthropic; the positive completion remains blocked on credential ty
 
 ## Spec-loop pass: `mcp-env-cleanup` slice — COMPLETE (loop closed, PASS)
 
-Ran one full `docs/SPEC_LOOP.md` pass using the four separated roles (each isolated
-context, artifact-only handoffs) from the `spec-loop` skill. Slice removed dead,
+Ran one full four-stage review pass using the four separated roles (each isolated
+context, artifact-only handoffs). Slice removed dead,
 unconsumed MCP transport config (`MCP_TRANSPORT`/`MCP_HOST`/`MCP_PORT`) so the config
 surface matches actual runtime behavior. Required one remediation loop after the
 independent verifier caught a process/boundary defect.
@@ -171,8 +171,8 @@ independent verifier caught a process/boundary defect.
 
 ## Spec-loop pass: `llm-smoke` slice — COMPLETE (loop closed)
 
-Ran one full `docs/SPEC_LOOP.md` pass using the four separated roles (each in an
-isolated context, artifact-only handoffs) from the `spec-loop` skill.
+Ran one full four-stage review pass using the four separated roles (each in an
+isolated context, artifact-only handoffs).
 
 | Stage | Role | Result |
 |-------|------|--------|
