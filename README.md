@@ -10,8 +10,9 @@ MCP clients (Copilot, Claude, Cursor, other agents) connect to the `mcp` service
 and recall long-lived "memories" as a Neo4j knowledge graph: nodes are entities/observations,
 relationships connect them, and a local embedder powers semantic (vector) search.
 
-See [`docs/SPECIFICATION.md`](./docs/SPECIFICATION.md) for the full design contract
-(goals, constraints, architecture, verification history).
+The full design contract (goals, constraints, architecture, acceptance criteria) is kept
+in a product requirements document outside this repository. The earlier in-repo spec
+documents were removed; see the git history before that removal for their content.
 
 ## Architecture
 
@@ -90,8 +91,6 @@ Never commit a real `.env` file or credentials.
   framework (pinned in [`docker/mcp.Dockerfile`](./docker/mcp.Dockerfile)) — this repo does
   not embed bespoke Cypher.
 - Keep the delta this repo owns thin and declarative (container images, compose, LiteLLM
-  config, env) per Goal G6 in the specification; `scripts/check_thin_delta.sh` lints this.
-- Design history and verified requirements are tracked in
-  [`docs/SPECIFICATION.md`](./docs/SPECIFICATION.md) and
-  [`docs/spec-loop-runs/`](./docs/spec-loop-runs/); process log in
-  [`AGENTS.md`](./AGENTS.md).
+  config, env) per Goal G6 in the requirements document; `scripts/check_thin_delta.sh` lints this.
+- Progress and verification history is logged in [`AGENTS.md`](./AGENTS.md). The spec
+  documents it once referenced were removed from the tree.
