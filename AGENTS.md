@@ -2,6 +2,11 @@
 
 This file tracks agent-driven progress on this repository. Newest entries first.
 
+> **Note on paths:** The spec documents (`docs/SPECIFICATION.md`, `docs/SPEC_LOOP.md`, and
+> `docs/spec-loop-runs/`) were removed from the tree. The entries below are a historical record,
+> so their `docs/` references point to files that no longer exist here. The consolidated
+> requirements now live in a PRD outside this repository. Earlier versions of the files are in git history.
+
 ## Spec-loop pass: `pin-framework-version` slice — COMPLETE (loop closed, PASS)
 
 Ran one full `docs/SPEC_LOOP.md` pass using the four separated roles (isolated contexts, artifact-only handoffs). Confirmed the framework version pin before merge. Outcome: CONFIRM-NO-CHANGE.
